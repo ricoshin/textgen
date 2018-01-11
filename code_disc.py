@@ -55,7 +55,7 @@ class CodeDiscriminator(nn.Module):
         #   (bn2): BatchNorm1d(300, eps=1e-05, momentum=0.1, affine=True)
         #   (activation2): LeakyReLU(0.2)
         #   (layer3): Linear(in_features=300, out_features=1)
-        # )
+        #  )
 
         self.init_weights()
 
