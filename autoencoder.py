@@ -79,10 +79,16 @@ class Autoencoder(nn.Module):
         zeros = Variable(torch.zeros(self.nlayers, bsz, self.nhidden))
         return to_gpu(self.gpu, zeros)
 
-    def store_grad_norm(self, grad):
+    def store_enc_grad_norm(self, grad):
         norm = torch.norm(grad, 2, 1)
-        self.grad_norm = norm.detach().data.mean()
-        # use this when compute critic's gradient (register_hook)
+        self.enc_grad_norm = norm.detach().data.mean()
+        # use this when compute disc_c's gradient (register_hook)
+        return grad
+
+    def store_dec_grad_norm(self, grad):
+        norm = torch.norm(grad, 2, 1)
+        self.dec_grad_norm = norm.detach().data.mean()
+        # use this when compute disc_s's gradient (register_hook)
         return grad
 
     def forward(self, indices, lengths, noise, encode_only=False):
@@ -94,7 +100,8 @@ class Autoencoder(nn.Module):
             return hidden # batch_size x hidden_size
 
         if hidden.requires_grad:
-            hidden.register_hook(self.store_grad_norm)
+            hidden.register_hook(self.store_enc_grad_norm)
+            #log.debug("Encoder gradient norm has been saved.")
 
         decoded = self.decode(hidden, batch_size, maxlen,
                               indices=indices, lengths=lengths)
@@ -179,60 +186,15 @@ class Autoencoder(nn.Module):
         # output.size() : batch_size x max(lengths) x hidden_size
         # len(lengths) : batch_size
 
+        if output.requires_grad:
+            output.register_hook(self.store_dec_grad_norm)
+            #log.debug("Decoder gradient norm has been saved.")
+
         # reshape to batch_size*maxlen x nhidden before linear over vocab
         decoded = self.linear(output.contiguous().view(-1, self.nhidden))
         decoded = decoded.view(batch_size, maxlen, self.ntokens)
 
         return decoded # decoded.size() : batch x max_len x ntokens [logits]
-
-    def generate(self, hidden, maxlen, sample=True, temp=1.0):
-        """Generate through decoder; no backprop"""
-
-        # hidden : generated hidden states
-        # hidden.size() : [batch_size, z_size(100)]
-        batch_size = hidden.size(0)
-
-        if self.hidden_init:
-            # initialize decoder hidden state to encoder output
-            state = (hidden.unsqueeze(0), self.init_state(batch_size))
-        else:
-            state = self.init_hidden(batch_size)
-
-        # <sos>
-        self.start_symbols.data.resize_(batch_size, 1)
-        # Tensor.resize_(): resize tensor to the specified sizes(could be larger or smaller)
-        self.start_symbols.data.fill_(1)
-        # self.start_symbols.size() : [batch_size, 1]
-
-        embedding = self.embedding_decoder(self.start_symbols)
-        # embedding : [batch_size, 1, embedding_size]
-        inputs = torch.cat([embedding, hidden.unsqueeze(1)], 2)
-
-        # unroll
-        all_indices = []
-        for i in range(maxlen): # for each step
-            # input very first step (sos totken + fake_z_code)
-            output, state = self.decoder(inputs, state)
-            # output.size() : bath_size x 1(max_len) x nhidden
-            # state.size() : 1(num_layer) x batch_size x nhidden
-            overvocab = self.linear(output.squeeze(1))
-            # output.squeeze(1) : batch_size x nhidden (output layer)
-
-            if not sample:
-                vals, indices = torch.max(overvocab, 1)
-            else:
-                # sampling
-                probs = F.softmax(overvocab/temp) # get probabilities that sum to 1
-                indices = torch.multinomial(probs, 1) # multinomial sampling
-
-            all_indices.append(indices.unsqueeze_(1)) # append generated vocab at each step
-
-            embedding = self.embedding_decoder(indices)
-            inputs = torch.cat([embedding, hidden.unsqueeze(1)], 2)
-
-        max_indices = torch.cat(all_indices, 1)
-        # max_indices.size() : batch_size x max_len
-        return max_indices
 
     def mask_output_target(self, output, target, ntokens):
         # Create sentence length mask over padding
@@ -338,8 +300,11 @@ class Autoencoder(nn.Module):
             ae.zero_grad()
         else:
             ae.eval()
-        # hidden : generated hidden states
-        # hidden.size() : [batch_size, z_size(100)]
+
+        if not (train and cfg.backprop_gen):
+            # should not backprop gradient to enc/gen
+            hidden = hidden.detach()
+
         batch_size = hidden.size(0)
 
         if ae.hidden_init:
@@ -361,14 +326,19 @@ class Autoencoder(nn.Module):
         # unroll
         all_indices = []
         all_hiddens = []
-        for i in range(cfg.max_len): # for each step
+        max_len = cfg.max_len + 1 # including sos/eos
+        for i in range(max_len): # for each step
             # input very first step (sos totken + fake_z_code)
             output, state = ae.decoder(inputs, state)
             # output.size() : bath_size x 1(max_len) x nhidden
             # state.size() : 1(num_layer) x batch_size x nhidden
             overvocab = ae.linear(output.squeeze(1))
             # output.squeeze(1) : batch_size x nhidden (output layer)
-            vals, indices = torch.max(overvocab, 1)
+            if not cfg.sample:
+                vals, indices = torch.max(overvocab, 1)
+            else: # sampling
+                probs = F.softmax(overvocab/temp) # get probabilities that sum to 1
+                indices = torch.multinomial(probs, 1).squeeze(1) # multinomial sampling
 
             all_hiddens.append(output)
             all_indices.append(indices.unsqueeze_(1)) # append generated vocab at each step
@@ -377,7 +347,38 @@ class Autoencoder(nn.Module):
 
         max_indices = torch.cat(all_indices, 1)
         hidden_states = torch.cat(all_hiddens, 1)
+
         # max_indices.size() : batch_size x max_len
         # hidden_states.size() : batch_size x max_len X nhidden
         max_indices = max_indices.data.cpu().numpy()
         return max_indices, hidden_states
+
+    @staticmethod
+    def decoder_train_(cfg, ae, disc_s, fake_code):
+        ae.train()
+        ae.zero_grad()
+
+        fake_ids, fake_states = ae.decode_(cfg, ae, fake_code)
+
+        def grad_hook(grad):
+            if cfg.ae_grad_norm:
+                gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
+                if gan_norm == .0:
+                    log.warning("zero sample_gan norm!")
+                    normed_grad = grad
+                else:
+                    normed_grad = grad * ae.enc_grad_norm / gan_norm
+            else:
+                normed_grad = grad
+            return normed_grad
+
+        fake_states.register_hook(grad_hook)
+
+        err_dec, attn_fake = disc_s(fake_states)
+
+        # loss / backprop
+        one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
+        err_dec.backward(one)
+
+        err_dec = err_dec.data[0]
+        return err_dec

@@ -22,8 +22,8 @@ def preprocess_data_vocab(cfg):
 
         log.info('Start preprocessing data and building vocabulary!')
         if isinstance(corpus_filename, (list, tuple)):
-            corpus_filepath= [*map(lambda fn: os.path.join(cfg.data_dir, fn),
-                                   corpus_filename)]
+            corpus_filepath= list(map(lambda fn: os.path.join(cfg.data_dir, fn),
+                                   corpus_filename))
             book_procs = BookCorpusMultiProcessor.from_multiple_files(
                     file_paths=corpus_filepath,
                     min_len=cfg.min_len,

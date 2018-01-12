@@ -58,7 +58,7 @@ parser.add_argument('--z_size', type=int, default=100,
                     help='dimension of random noise z to feed into generator')
 parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
-parser.add_argument('--enc_grad_norm', type=str2bool, default=True,
+parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
 parser.add_argument('--gan_toenc', type=float, default=-0.01,
                     help='weight factor passing gradient from gan to encoder')
@@ -83,6 +83,8 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
+parser.add_argument('--eval_size', type=int, default=5, metavar='N',
+                    help='batch size during evaluation')
 parser.add_argument('--niters_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')
 parser.add_argument('--niters_gan_d', type=int, default=5,
@@ -104,6 +106,8 @@ parser.add_argument('--clip', type=float, default=1,
                     help='gradient clipping, max norm')
 parser.add_argument('--gan_clamp', type=float, default=0.01,
                     help='WGAN clamp')
+parser.add_argument('--backprop_gen', type=str2bool, default=False,
+                    help='enable backpropagation gradient from disc_s to gen')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',
@@ -119,3 +123,4 @@ parser.add_argument('--log_level', type=str, default='debug')
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', type=str2bool, default=True, help='use CUDA')
+parser.add_argument('--log_nsample', type=int, default=5)

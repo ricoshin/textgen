@@ -1,3 +1,4 @@
+import logging
 import math
 
 import torch
@@ -5,6 +6,8 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from utils import to_gpu
+
+log = logging.getLogger('main')
 
 
 class CodeDiscriminator(nn.Module):
@@ -91,9 +94,13 @@ class CodeDiscriminator(nn.Module):
 
             # regularize GAN gradient in AE(encoder only) gradient scale
             # GAN gradient * [norm(Encoder gradient) / norm(GAN gradient)]
-            if cfg.enc_grad_norm: # default:True / norm code gradient from critic->encoder
+            if cfg.ae_grad_norm: # default:True / norm code gradient from critic->encoder
                 gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
-                normed_grad = grad * ae.grad_norm / gan_norm
+                if gan_norm == .0:
+                    log.warning("zero code_gan norm!")
+                    normed_grad = grad
+                else:
+                    normed_grad = grad * ae.enc_grad_norm / gan_norm
                 # grad : gradient from GAN
                 # aeoder.grad_norm : norm(gradient from AE)
                 # gan_norm : norm(gradient from GAN)

@@ -1,8 +1,12 @@
+import logging
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from utils import to_gpu
+
+log = logging.getLogger('main')
 
 
 class SampleDiscriminator(nn.Module):
@@ -19,7 +23,7 @@ class SampleDiscriminator(nn.Module):
         out1_len = map_len(max_len, 1)
         out2_len = map_len(out1_len, 2)
         out3_len = map_len(out2_len, 2)
-        print('conv3_len:', out3_len)
+        log.debug('conv3_len: %d' % out3_len)
 
         ch = [128, 256, 512]
 

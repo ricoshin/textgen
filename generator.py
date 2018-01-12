@@ -70,7 +70,7 @@ class Generator(nn.Module):
                 pass
 
     @staticmethod
-    def make_noise(cfg, num_samples=None):
+    def make_noise_(cfg, num_samples=None):
         if num_samples is None:
             num_samples = cfg.batch_size
         noise = Variable(torch.ones(num_samples, cfg.z_size))
@@ -79,51 +79,28 @@ class Generator(nn.Module):
         return noise
 
     @staticmethod
-    def generate_(cfg, gen, train=True):
+    def generate_(cfg, gen, noise=None, train=True):
         if train:
             gen.train()
             gen.zero_grad()
         else:
             gen.eval()
-
-        noise = Generator.make_noise(cfg)
+        if noise is None:
+            noise = Generator.make_noise_(cfg)
         return gen(noise)
 
     @staticmethod
-    def train_(cfg, gen, ae, disc_c, disc_s=None):
+    def train_(cfg, gen, ae, disc_c):
         gen.train()
         gen.zero_grad()
 
-        noise = Generator.make_noise(cfg)
+        noise = Generator.make_noise_(cfg)
         fake_code = gen(noise)
-        err_g = err_g_c = disc_c(fake_code)
-
-        if disc_s is not None:
-            fake_outs, fake_states = ae.decode_(cfg, ae, fake_code)
-            err_g_s, _ = disc_s(fake_states) # discard attention weights
-            err_g = err_g_c + err_g_s
-        else:
-            err_g_s = None
+        err_g = disc_c(fake_code)
 
         # loss / backprop
         one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
         err_g.backward(one)
 
         err_g = err_g.data[0]
-        err_g_c = err_g_c.data[0]
-        if disc_s is not None:
-            err_g_s = err_g_s.data[0]
-
-        return err_g, err_g_c, err_g_s
-
-    @staticmethod
-    def eval_(cfg, gen, ae, noise):
-        gen.eval()
-        ae.eval()
-
-        fake_hidden = gen(noise)
-        max_indices = ae.generate(fake_hidden, cfg.max_len, sample=cfg.sample)
-        # if args.sample is True, we do the sampling when decoding
-
-        outputs = max_indices.data.cpu().numpy()
-        return outputs
+        return err_g, fake_code

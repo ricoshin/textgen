@@ -22,13 +22,6 @@ def print_line(char='-', row=1, length=130):
     for i in range(row):
         log.info(char * length)
 
-def print_ae_nums(cfg, epoch, batch, nbatch, loss, accuracy):
-    print_line(' ')
-    print_line()
-    log.info("| Epoch %d/%d | Batches %d/%d | Loss %5.2f | Acc %8.2f |"
-             % (epoch, cfg.epochs, batch, nbatch,
-                loss, accuracy))
-
 def ids_to_sent(vocab, ids, no_pad=True):
     if no_pad:
         return " ".join([vocab.idx2word[idx] for idx in ids
@@ -36,26 +29,51 @@ def ids_to_sent(vocab, ids, no_pad=True):
     else:
         return " ".join([vocab.idx2word[idx] for idx in ids])
 
+def pad_after_eos(vocab, ids):
+    truncated_ids = []
+    eos = False
+    for idx in ids:
+        if (not eos) and (idx == vocab.EOS_ID):
+            truncated_ids.append(idx)
+            eos = True
+            continue
+        if not eos:
+            truncated_ids.append(idx)
+        else:
+            truncated_ids.append(vocab.PAD_ID)
+    return truncated_ids
+
 def print_ae_sents(vocab, target_ids, output_ids, nline=5):
+    coupled = list(zip(target_ids, output_ids))
+    # shuffle : to prevent always printing the longest ones first
+    np.random.shuffle(coupled)
+
     print_line()
-    for i, (tar_ids, out_ids) in enumerate(zip(target_ids, output_ids)):
+    for i, (tar_ids, out_ids) in enumerate(coupled):
         if i > nline - 1: break
         log.info("[X] " + ids_to_sent(vocab, tar_ids))
         log.info("[Y] " + ids_to_sent(vocab, out_ids))
         print_line()
 
-def print_gan_nums(cfg, epoch, batch, nbatch, loss_d, loss_d_real,
-                   loss_d_fake, loss_g):
+def print_info(sv):
     print_line()
-    log.info("| Epoch %d/%d | Batches %d/%d | Loss_D %.8f | Loss_D_real "
-             "%.8f | Loss_D_fake %.8f | Loss_G %.8f"
-             % (epoch, cfg.epochs, batch, nbatch,
-                loss_d, loss_d_real, loss_d_fake, loss_g))
+    log.info("| Name : %s | Epoch : %d/%d | Batches : %d/%d |"
+             % (sv.cfg.name, sv.epoch_step, sv.epoch_total,
+                sv.batch_step, sv.batch_total))
+
+def print_nums(sv, title, num_dict):
+    print_info(sv)
+    print_str = "| %s |" % title
+    for key, value in num_dict.items():
+        print_str += " %s : %.8f |" % (key, value)
+    log.info(print_str)
+
 
 def print_gen_sents(vocab, output_ids, nline=999):
     print_line()
     for i, ids in enumerate(output_ids):
         if i > nline - 1: break
+        ids = pad_after_eos(vocab, ids)
         log.info(ids_to_sent(vocab, ids))
         print_line()
     print_line(' ')
@@ -112,16 +130,16 @@ def mark_empty_attn(attns, max_len):
     #  [array(attn_1)[1], array(att_2)[1], array(attn_3)[1]],
     #                        ......... (batch_size)        ]
 
-def print_attn_weights(cfg, vocab, real_ids, fake_ids,
-                       real_attns, fake_attns, nline):
-    real_attns = mark_empty_attn(real_attns, cfg.max_len)
-    fake_attns = mark_empty_attn(fake_attns, cfg.max_len)
+def print_attn_weights(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
+    real_attns = mark_empty_attn(real_attns, cfg.max_len + 1)
+    fake_attns = mark_empty_attn(fake_attns, cfg.max_len + 1)
     # len(real_attns) : batch_size
     # real_attns[0] : [array(attn_1[0]), array(attn_2[0], array(attn_3[0]))
     def print_aligned(batch_ids, batch_attns):
         #import ipdb; ipdb.set_trace()
         for i, (ids, attn_list) in enumerate(zip(batch_ids, batch_attns)):
-            if i > nline - 1: break
+            if i > cfg.log_nsample - 1: break
+            ids = pad_after_eos(vocab, ids) # redundant for real_ids
             words = [vocab.idx2word[idx] for idx in ids]
             word_str, attn_str_list = align_word_attn(words, attn_list)
             for attn_str in reversed(attn_str_list): # from topmost attn layer
@@ -143,8 +161,8 @@ def train(net):
     log.info("Training start!")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
-    fixed_noise = Generator.make_noise(cfg, 3) # for generator
-    writer = SummaryWriter(self.log_dir)
+    fixed_noise = Generator.make_noise_(cfg, cfg.eval_size) # for generator
+    writer = SummaryWriter(cfg.log_dir)
     sv = TrainingSupervisor(net)
 
     while not sv.global_stop():
@@ -169,33 +187,39 @@ def train(net):
                     # randomly select single batch among entire batches in the epoch
                     batch = net.data_gan.next()
 
+                    # train CodeDiscriminator
                     real_code = Autoencoder.encode_(cfg, net.ae, batch)
-                    fake_code = Generator.generate_(cfg, net.gen, False)
+                    fake_code = Generator.generate_(cfg, net.gen, None, False)
                     errs_d_c= CodeDiscriminator.train_(
                         cfg, net.disc_c, net.ae, real_code, fake_code)
+                    err_d_c, err_d_c_real, err_d_c_fake = errs_d_c
 
+                    # train SampleDiscriminator
                     real_ids, real_states = \
-                        Autoencoder.decode_(cfg, net.ae, real_code, False)
+                        Autoencoder.decode_(cfg, net.ae, real_code)
                     fake_ids, fake_states = \
-                        Autoencoder.decode_(cfg, net.ae, fake_code, False)
+                        Autoencoder.decode_(cfg, net.ae, fake_code)
 
                     if cfg.with_attn:
                         errs_d_s, attns = SampleDiscriminator.train_(
                             cfg, net.disc_s, real_states, fake_states)
+                        err_d_s, err_d_s_real, err_d_s_fake = errs_d_s
 
+
+                    net.optim_ae.step()
                     net.optim_disc_c.step()
                     if cfg.with_attn:
                         net.optim_disc_s.step()
+
+                # train generator(with disc_c) / decoder(with disc_s)
+                for i in range(cfg.niters_gan_g): # default: 1
+                    err_g, fake_code = Generator.train_(cfg, net.gen, net.ae,
+                                                        net.disc_c)
+                    net.optim_gen.step()
+                    err_dec = Autoencoder.decoder_train_(
+                        cfg, net.ae, net.disc_s, fake_code)
                     net.optim_ae.step()
 
-                # train generator
-                for i in range(cfg.niters_gan_g): # default: 1
-                    disc_s = net.disc_s if cfg.with_attn else None
-                    err_g, err_g_c, err_g_s = Generator.train_(
-                        cfg, net.gen, net.ae, net.disc_c, None) # NOTE: disc_s
-                    net.optim_gen.step()
-
-            # it can be different from niter when niters_ae is larger than 1
             if not sv.batch_step % cfg.log_interval == 0:
                 continue
 
@@ -210,44 +234,43 @@ def train(net):
 
             # Autoencoder
             targets, outputs = Autoencoder.eval_(cfg, net.ae, batch)
-            print_ae_nums(cfg, epoch, nbatch, net.nbatch, ae_loss, ae_acc)
-            print_ae_sents(net.vocab, targets, outputs, 3)
+            print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
+                                           Accuracy=ae_acc))
+            print_ae_sents(net.vocab, targets, outputs, cfg.eval_size)
 
             # Generator + Discriminator_c
-            print_gan_nums(cfg, epoch, nbatch, net.nbatch, *errs_d_c, err_g_c)
-            outputs = Generator.eval_(cfg, net.gen, net.ae, fixed_noise)
-            print_gen_sents(net.vocab, outputs)
+            fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)
+            fake_ids, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden, False)
+            print_nums(sv, 'CodeGAN', dict(Loss_D_Total=err_d_c,
+                                           Loss_D_Real=err_d_c_real,
+                                           Loss_D_Fake=err_d_c_fake,
+                                           Loss_G=err_g))
+            print_gen_sents(net.vocab, fake_ids)
 
-            err_g_s = 0 # NOTE
             # Discriminator_s
             if cfg.with_attn:
-                print_gan_nums(cfg, epoch, nbatch, net.nbatch,
-                               *errs_d_s, err_g_s)
-                print_attn_weights(cfg, net.vocab, real_ids, fake_ids,
-                                   *attns, 3)
+                print_nums(sv, 'SampleGAN', dict(Loss_D_Total=err_d_s,
+                                                 Loss_D_Real=err_d_s_real,
+                                                 Loss_D_Fake=err_d_s_fake,
+                                                 Loss_Dec=err_dec))
+                print_attn_weights(cfg, net.vocab, real_ids, fake_ids, *attns)
 
             # Autoencoder
-            writer.add_scalar('data/ae_loss', ae_loss, niter)
-            writer.add_scalar('data/ae_accuracy',  ae_acc, niter)
+            writer.add_scalar('AE/1_AE_loss', ae_loss, niter)
+            writer.add_scalar('AE/2_AE_accuracy',  ae_acc, niter)
 
-            # Generator
-            writer.add_scalar('data/gen_loss', err_g, niter)
-            writer.add_scalar('data/gen_c_loss', err_g_c, niter)
+            # Discriminator_c + Generator
+            writer.add_scalar('GAN_c/1_Disc_loss_total', err_d_c, niter)
+            writer.add_scalar('GAN_c/2_Disc_loss_real', err_d_c_real, niter)
+            writer.add_scalar('GAN_c/3_Disc_loss_fake', err_d_c_fake, niter)
+            writer.add_scalar('GAN_c/4_Gen_loss', err_g, niter)
+
+            # Discriminator_s + Decoder(the other Generator)
             if cfg.with_attn:
-                writer.add_scalar('data/gen_s_loss', err_g_s, niter)
-
-            # Discriminator_c
-            err_d, err_d_real, err_d_fake = errs_d_c
-            writer.add_scalar('data/disc_c_loss', err_d, niter)
-            writer.add_scalar('data/disc_c_real_loss', err_d_real, niter)
-            writer.add_scalar('data/disc_c_fake_loss', err_d_fake, niter)
-
-            # Discriminator_s
-            if cfg.with_attn:
-                err_d, err_d_real, err_d_fake = errs_d_s
-                writer.add_scalar('data/disc_s_loss', err_d, niter)
-                writer.add_scalar('data/disc_s_real', err_d_real, niter)
-                writer.add_scalar('data/disc_s_fake', err_d_fake, niter)
+                writer.add_scalar('GAN_s/1_Disc_loss', err_d_s, niter)
+                writer.add_scalar('GAN_s/2_Disc_loss_real', err_d_s_real, niter)
+                writer.add_scalar('GAN_s/3_Disc_loss_fake', err_d_s_fake, niter)
+                writer.add_scalar('GAN_s/4_Dec_loss', err_dec, niter)
 
             sv.save()
 
