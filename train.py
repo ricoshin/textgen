@@ -25,7 +25,7 @@ def print_line(char='-', row=1, length=130):
 def ids_to_sent(vocab, ids, no_pad=True):
     if no_pad:
         return " ".join([vocab.idx2word[idx] for idx in ids
-                         if idx is not vocab.PAD_ID])
+                         if idx != vocab.PAD_ID])
     else:
         return " ".join([vocab.idx2word[idx] for idx in ids])
 

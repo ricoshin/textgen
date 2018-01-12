@@ -1,4 +1,5 @@
 import logging
+import math
 
 import torch
 import torch.nn as nn
@@ -367,9 +368,11 @@ class Autoencoder(nn.Module):
                     log.warning("zero sample_gan norm!")
                     normed_grad = grad
                 else:
-                    normed_grad = grad * ae.enc_grad_norm / gan_norm
+                    normed_grad = grad * ae.dec_grad_norm / gan_norm
             else:
                 normed_grad = grad
+
+            normed_grad *= math.fabs(cfg.gan_toenc)
             return normed_grad
 
         fake_states.register_hook(grad_hook)
