@@ -216,9 +216,10 @@ def train(net):
                     err_g, fake_code = Generator.train_(cfg, net.gen, net.ae,
                                                         net.disc_c)
                     net.optim_gen.step()
-                    err_dec = Autoencoder.decoder_train_(
-                        cfg, net.ae, net.disc_s, fake_code)
-                    net.optim_ae.step()
+                    if cfg.with_attn:
+                        err_dec = Autoencoder.decoder_train_(
+                            cfg, net.ae, net.disc_s, fake_code)
+                        net.optim_ae.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
                 continue

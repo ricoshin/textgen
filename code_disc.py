@@ -98,6 +98,7 @@ class CodeDiscriminator(nn.Module):
                 gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
                 if gan_norm == .0:
                     log.warning("zero code_gan norm!")
+                    import ipdb; ipdb.set_trace()
                     normed_grad = grad
                 else:
                     normed_grad = grad * ae.enc_grad_norm / gan_norm

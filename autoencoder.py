@@ -366,6 +366,7 @@ class Autoencoder(nn.Module):
                 gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
                 if gan_norm == .0:
                     log.warning("zero sample_gan norm!")
+                    import ipdb; ipdb.set_trace()
                     normed_grad = grad
                 else:
                     normed_grad = grad * ae.dec_grad_norm / gan_norm
