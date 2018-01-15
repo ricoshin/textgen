@@ -52,13 +52,15 @@ class Network(object):
 
         batching_dataset = BatchingDataset(vocab)
         dataloader_ae = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
-                                   num_workers=4, collate_fn=batching_dataset)
+                                   num_workers=0, collate_fn=batching_dataset,
+                                   drop_last=True, pin_memory=True)
         dataloader_gan = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
-                                    num_workers=4, collate_fn=batching_dataset)
+                                    num_workers=0, collate_fn=batching_dataset,
+                                    drop_last=True, pin_memory=True)
         #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
         #                                shuffle=False, num_workers=4,
         #                                collate_fn=batching_dataset)
-        self.nbatch = len(dataloader_ae)
+        self.nbatch = len(book_corpus) // cfg.batch_size
         self.data_ae = BatchIterator(dataloader_ae)
         self.data_gan = BatchIterator(dataloader_gan)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
@@ -84,7 +86,7 @@ class Network(object):
                                         gpu=cfg.cuda)
         # Discriminator - sample level
         if cfg.with_attn:
-            self.disc_s = SampleDiscriminator(max_len=cfg.max_len,
+            self.disc_s = SampleDiscriminator(max_len=cfg.max_len+1,
                                               filter_size=3,
                                               step_dim=cfg.hidden_size,
                                               embed_size=cfg.embed_size,
@@ -129,9 +131,9 @@ class TrainingSupervisor(object):
         self.epoch_step = 1
         self.batch_step = 1
 
-        self.global_total = self.cfg.epochs * len(net.data_ae)
+        self.global_total = self.cfg.epochs * self.net.nbatch
         self.epoch_total = self.cfg.epochs
-        self.batch_total = len(net.data_ae)
+        self.batch_total = self.net.nbatch
         self.gan_schedule = self._init_gan_schedule()
         self.gan_niter = self.gan_schedule[0]
 

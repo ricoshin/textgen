@@ -97,10 +97,25 @@ def set_logger(cfg):
 
 def prepare_paths(cfg):
     cfg.log_dir = os.path.join(cfg.out_dir, cfg.name)
+    cfg.data_dir = os.path.join(cfg.data_dir, cfg.data_name)
+    cfg.prepro_dir += ("_" + cfg.data_name)
     cfg.log_filepath = os.path.join(cfg.log_dir, "log.txt")
 
-    if cfg.small:
-        cfg.prepro_dir += "_small"
+    if cfg.data_name == "books":
+        if cfg.small:
+            cfg.prepro_dir += "_small"
+            cfg.train_filepath = "books_100k.txt"
+            cfg.test_filepath = None
+        else:
+            cfg.train_filepath = ["books_large_p1.txt", "books_large_p2.txt"]
+            cfg.test_filepath = None
+
+    elif cfg.data_name == "snli":
+        if cfg.small:
+            raise Exception("There's no small version of snli dataset!")
+        else:
+            cfg.train_filepath = os.path.join(cfg.data_dir, 'train.txt')
+            cfg.test_filepath = os.path.join(cfg.data_dir, 'test.txt')
 
     cfg.data_filepath = os.path.join(cfg.prepro_dir, "data.txt")
     cfg.vocab_filepath = os.path.join(cfg.prepro_dir, "vocab.pickle")

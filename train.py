@@ -1,5 +1,6 @@
 import logging
 import numpy as np
+import os
 import time
 
 from tensorboardX import SummaryWriter
@@ -12,6 +13,7 @@ from utils import set_random_seed, to_gpu
 
 from autoencoder import Autoencoder
 from code_disc import CodeDiscriminator
+from evaluate import evaluate_sents
 from generator import Generator
 from sample_disc import SampleDiscriminator
 
@@ -29,12 +31,13 @@ def ids_to_sent(vocab, ids, no_pad=True):
     else:
         return " ".join([vocab.idx2word[idx] for idx in ids])
 
-def pad_after_eos(vocab, ids):
+def pad_after_eos(vocab, ids, last_eos=True):
     truncated_ids = []
     eos = False
     for idx in ids:
         if (not eos) and (idx == vocab.EOS_ID):
-            truncated_ids.append(idx)
+            if last_eos:
+                truncated_ids.append(idx)
             eos = True
             continue
         if not eos:
@@ -42,6 +45,13 @@ def pad_after_eos(vocab, ids):
         else:
             truncated_ids.append(vocab.PAD_ID)
     return truncated_ids
+
+def ids_to_sent_for_eval(vocab, ids):
+    sents = []
+    for idx in ids:
+        truncated_ids = pad_after_eos(vocab, idx, last_eos=False)
+        sents.append(ids_to_sent(vocab, truncated_ids, no_pad=True))
+    return sents
 
 def print_ae_sents(vocab, target_ids, output_ids, nline=5):
     coupled = list(zip(target_ids, output_ids))
@@ -78,23 +88,25 @@ def print_gen_sents(vocab, output_ids, nline=999):
         print_line()
     print_line(' ')
 
-def align_word_attn(words, attn_list, min_width=4):
+def align_word_attn(words, attns_w, attns_l, min_width=4):
     # attn_list[i] : [attn1[i], attn2[i], attn3[i]]
     word_formats = ' '.join(['{:^%ds}' % max(min_width, len(word))
                             for word in words])
     word_str = word_formats.format(*words)
     attn_str_list = []
-    for attn in attn_list:
+    # group word & layer attention by layers
+    for (attn_w, attn_l) in zip(attns_w, attns_l):
         attn_formats = ' '.join(['{:^%d}' % max(min_width, len(word))
                                  for word in words])
-        attn = [int(a*100) for a in attn]
-        attn_str = attn_formats.format(*attn)
+        attn_w = [int(a*100) for a in attn_w]
+        attn_str = attn_formats.format(*attn_w)
         attn_str = attn_str.replace('-100', '    ') # remove empty slots
+        attn_str += "  [ %5.4f ]" % attn_l # append layer-wise attend
         attn_str_list.append(attn_str)
     return word_str, attn_str_list
 
 def mark_empty_attn(attns, max_len):
-    filter_n_stride = [(3,1), (3,2), (3,2)]
+    filter_n_stride = [(3,1), (3,2), (3,2), (4,1)]
     assert len(filter_n_stride) == len(attns)
     filters, strides = zip(*filter_n_stride)
     stride_ = 1
@@ -117,7 +129,6 @@ def mark_empty_attn(attns, max_len):
         attn_cnt = 0
         actual_strides *= strides[i]
         for j in range(max_len - left_empty):
-            #import ipdb; ipdb.set_trace()
             if j % actual_strides[i]  == 0 and attn_cnt < attn.shape[1]:
                 new_attn = np.append(new_attn, attn[:, [attn_cnt]], axis=1)
                 attn_cnt += 1
@@ -125,23 +136,30 @@ def mark_empty_attn(attns, max_len):
                 new_attn = np.append(new_attn, empty_attn, axis=1)
         new_attns.append(new_attn)
         # [array(attn_1), array(att_2), array(attn_3)]
-    return list(zip(*new_attns))
+    return new_attns
+
+def batch_first_attns(attns):
     # [[array(attn_1)[0], array(att_2)[0], array(attn_3)[0]],
     #  [array(attn_1)[1], array(att_2)[1], array(attn_3)[1]],
     #                        ......... (batch_size)        ]
+    attns_w, attns_s = attns
+    return (list(zip(*attns_w)), list(zip(*attns_s)))
 
-def print_attn_weights(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
-    real_attns = mark_empty_attn(real_attns, cfg.max_len + 1)
-    fake_attns = mark_empty_attn(fake_attns, cfg.max_len + 1)
+def print_attns(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
+    real_attns[0] = mark_empty_attn(real_attns[0], cfg.max_len + 1)
+    fake_attns[0] = mark_empty_attn(fake_attns[0], cfg.max_len + 1)
+    real_attns = batch_first_attns(real_attns)
+    fake_attns = batch_first_attns(fake_attns)
     # len(real_attns) : batch_size
     # real_attns[0] : [array(attn_1[0]), array(attn_2[0], array(attn_3[0]))
-    def print_aligned(batch_ids, batch_attns):
-        #import ipdb; ipdb.set_trace()
-        for i, (ids, attn_list) in enumerate(zip(batch_ids, batch_attns)):
+    def print_aligned(bat_ids, bat_attns):
+        attns_w, attns_l = bat_attns
+        for i, sent_wise in enumerate(zip(bat_ids, attns_w, attns_l)):
+            ids, attns_w, attns_l = sent_wise
             if i > cfg.log_nsample - 1: break
             ids = pad_after_eos(vocab, ids) # redundant for real_ids
             words = [vocab.idx2word[idx] for idx in ids]
-            word_str, attn_str_list = align_word_attn(words, attn_list)
+            word_str, attn_str_list = align_word_attn(words, attns_w, attns_l)
             for attn_str in reversed(attn_str_list): # from topmost attn layer
                 log.info(attn_str)
             log.info(word_str)
@@ -156,6 +174,12 @@ def print_attn_weights(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
     print_aligned(fake_ids, fake_attns)
     print_line(' ')
 
+def load_test_data(cfg):
+    test_sents = []
+    with open(os.path.join(cfg.data_dir, 'test.txt')) as f:
+        for line in f:
+            test_sents.append(line.strip())
+    return test_sents
 
 def train(net):
     log.info("Training start!")
@@ -164,6 +188,7 @@ def train(net):
     fixed_noise = Generator.make_noise_(cfg, cfg.eval_size) # for generator
     writer = SummaryWriter(cfg.log_dir)
     sv = TrainingSupervisor(net)
+    test_sents = load_test_data(cfg)
 
     while not sv.global_stop():
         while not sv.epoch_stop():
@@ -171,8 +196,8 @@ def train(net):
             # train autoencoder ----------------------------
             for i in range(cfg.niters_ae): # default: 1 (constant)
                 batch = net.data_ae.next_or_none()
-                if net.data_ae.batch is None:
-                    break  # end of epoch3
+                if batch is None:
+                    break  # end of epoch
 
                 ae_loss, ae_acc = Autoencoder.train_(cfg, net.ae, batch)
                 net.optim_ae.step()
@@ -200,7 +225,7 @@ def train(net):
                     fake_ids, fake_states = \
                         Autoencoder.decode_(cfg, net.ae, fake_code)
 
-                    if cfg.with_attn:
+                    if cfg.with_attn and sv.epoch_step > cfg.disc_s_hold:
                         errs_d_s, attns = SampleDiscriminator.train_(
                             cfg, net.disc_s, real_states, fake_states)
                         err_d_s, err_d_s_real, err_d_s_fake = errs_d_s
@@ -216,7 +241,7 @@ def train(net):
                     err_g, fake_code = Generator.train_(cfg, net.gen, net.ae,
                                                         net.disc_c)
                     net.optim_gen.step()
-                    if cfg.with_attn:
+                    if cfg.with_attn and sv.epoch_step > cfg.disc_s_hold:
                         err_dec = Autoencoder.decoder_train_(
                             cfg, net.ae, net.disc_s, fake_code)
                         net.optim_ae.step()
@@ -237,7 +262,7 @@ def train(net):
             targets, outputs = Autoencoder.eval_(cfg, net.ae, batch)
             print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
                                            Accuracy=ae_acc))
-            print_ae_sents(net.vocab, targets, outputs, cfg.eval_size)
+            print_ae_sents(net.vocab, targets, outputs, cfg.log_nsample)
 
             # Generator + Discriminator_c
             fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)
@@ -246,15 +271,19 @@ def train(net):
                                            Loss_D_Real=err_d_c_real,
                                            Loss_D_Fake=err_d_c_fake,
                                            Loss_G=err_g))
-            print_gen_sents(net.vocab, fake_ids)
+            print_gen_sents(net.vocab, fake_ids, cfg.log_nsample)
 
             # Discriminator_s
-            if cfg.with_attn:
+            if cfg.with_attn and epoch > cfg.disc_s_hold:
                 print_nums(sv, 'SampleGAN', dict(Loss_D_Total=err_d_s,
                                                  Loss_D_Real=err_d_s_real,
                                                  Loss_D_Fake=err_d_s_fake,
                                                  Loss_Dec=err_dec))
-                print_attn_weights(cfg, net.vocab, real_ids, fake_ids, *attns)
+                print_attns(cfg, net.vocab, real_ids, fake_ids, *attns)
+
+            fake_sents = ids_to_sent_for_eval(net.vocab, fake_ids)
+            scores = evaluate_sents(test_sents, fake_sents)
+            log.info(scores) # NOTE: change later!
 
             # Autoencoder
             writer.add_scalar('AE/1_AE_loss', ae_loss, niter)
@@ -267,11 +296,16 @@ def train(net):
             writer.add_scalar('GAN_c/4_Gen_loss', err_g, niter)
 
             # Discriminator_s + Decoder(the other Generator)
-            if cfg.with_attn:
+            if cfg.with_attn and epoch > cfg.disc_s_hold:
                 writer.add_scalar('GAN_s/1_Disc_loss', err_d_s, niter)
                 writer.add_scalar('GAN_s/2_Disc_loss_real', err_d_s_real, niter)
                 writer.add_scalar('GAN_s/3_Disc_loss_fake', err_d_s_fake, niter)
                 writer.add_scalar('GAN_s/4_Dec_loss', err_dec, niter)
+
+            writer.add_scalar('Eval/1_Bleu', scores['bleu'], niter)
+            writer.add_scalar('Eval/2_Meteor', scores['meteor'], niter)
+            writer.add_scalar('Eval/3_ExactMatch', scores['em'], niter)
+            writer.add_scalar('Eval/4_F1', scores['f1'], niter)
 
             sv.save()
 

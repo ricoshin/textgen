@@ -10,10 +10,12 @@ def str2bool(v):
 
 parser = argparse.ArgumentParser(description='PyTorch ARAE for Text')
 # Path Arguments
-parser.add_argument('--prepro_dir', type=str, default='data/prepro',
+parser.add_argument('--prepro_dir', type=str, default='prepro',
                     help='location of the preprocessed data')
-parser.add_argument('--data_dir', type=str, default='data/books',
-                    help='location of the data corpus')
+parser.add_argument('--data_dir', type=str, default='data',
+                    help='location of the datasets')
+parser.add_argument('--data_name', type=str, default='snli',
+                    choices=['snli','books'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')
 parser.add_argument('--out_dir', type=str, default='out',
@@ -83,7 +85,7 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--eval_size', type=int, default=5, metavar='N',
+parser.add_argument('--eval_size', type=int, default=100, metavar='N',
                     help='batch size during evaluation')
 parser.add_argument('--niters_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')
@@ -108,6 +110,8 @@ parser.add_argument('--gan_clamp', type=float, default=0.01,
                     help='WGAN clamp')
 parser.add_argument('--backprop_gen', type=str2bool, default=False,
                     help='enable backpropagation gradient from disc_s to gen')
+parser.add_argument('--disc_s_hold', type=int, default=1, 
+                    help='num of initial epochs not training train disc_s')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',
@@ -123,4 +127,4 @@ parser.add_argument('--log_level', type=str, default='debug')
 parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', type=str2bool, default=True, help='use CUDA')
-parser.add_argument('--log_nsample', type=int, default=5)
+parser.add_argument('--log_nsample', type=int, default=4)

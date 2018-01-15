@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -16,75 +17,107 @@ class SampleDiscriminator(nn.Module):
         # Step represetation can be :
         #   - hidden states which each word is generated from
         #   - embeddings that were porduced from generated word indices
-        # inputs.size() : [batch_size, 1, max_len, embed_size]
-
-        def map_len(in_size, stride):
+        # inputs.size() : [batch_size(N), 1(C), max_len(H), embed_size(W)]
+        def next_height(in_size, filters_size, stride):
             return (in_size - filter_size) // stride + 1
-        out1_len = map_len(max_len, 1)
-        out2_len = map_len(out1_len, 2)
-        out3_len = map_len(out2_len, 2)
-        log.debug('conv3_len: %d' % out3_len)
 
-        ch = [128, 256, 512]
+        num_conv = 4
+        strides = [1, 2, 2] # last_one should be calculated later
+        filters = [3, 3, 3] # last_one should be calculated later
+        channels = [step_dim] + [128*(2**(i)) for i in range(num_conv)]
+        fc_layers = []
 
-        #self.embedding = nn.Embedding(ntokens, embed_size)
-        #self.convs1 = [nn.Conv2d(Ci, Co, (K, D)) for K in Ks]
-        self.conv1 = nn.Conv2d(1, ch[0], (filter_size, step_dim)) # H : max_len
-        self.conv2 = nn.Conv2d(ch[0], ch[1], (filter_size, 1), stride=2)
-        self.conv3 = nn.Conv2d(ch[1], ch[2], (filter_size, 1), stride=2)
-        self.pool = nn.MaxPool2d((out3_len, 1))
+        heights = [max_len]
+        for i in range(len(filters)):
+            heights.append(next_height(heights[i], filters[i], strides[i]))
+
+        # last layer (size dependant on the previous layer)
+        filters += [heights[-1]]
+        strides += [1]
+        heights += [1]
+
+        num_fc = 2
+        size_fc  = [sum(channels[1:])] * (num_fc) + [1]
+
+        log.debug(filters)  # filters = [3, 3, 3, 4]
+        log.debug(strides)  # strides = [1, 2, 2, 1]
+        log.debug(heights)  # heights = [21, 19, 9, 4, 1]
+        log.debug(channels) # channels = [300, 128, 256, 512, 1024]
+        log.debug(size_fc)  # size_fc = [1920, 1920, 1]
+
+        ch = channels
+        # main convoutional layers
+        self.convs = nn.ModuleList(
+            [nn.Conv2d(ch[i], ch[i+1], (filters[i], 1), strides[i])
+                for i in range(num_conv)])
+
+        ch = channels[1:]
+        # wordwise attention layers
+        self.word_attn1 = nn.ModuleList(
+            [nn.Conv2d(ch[i], ch[i], (1, 1)) for i in range(num_conv-1)])
+        self.word_attn2 = nn.ModuleList(
+            [nn.Conv2d(ch[i], 1, (1, 1)) for i in range(num_conv-1)])
+
+        # layerwise attention layers
+        self.layer_attn1 = nn.ModuleList(
+            [nn.Conv2d(ch[i], ch[i], (1, 1)) for i in range(num_conv)])
+        self.layer_attn2 = nn.ModuleList(
+            [nn.Conv2d(ch[i], 1, (1, 1)) for i in range(num_conv)])
+
+        # fully-connected layers
+        self.fc = nn.ModuleList(
+            [nn.Linear(size_fc[i], size_fc[i+1]) for i in range(num_fc)])
         self.dropout = nn.Dropout(dropout)
-        self.fc1 = nn.Linear(ch[2], 1)
-        self.attn1_1 = nn.Linear(ch[0], (ch[0]//2))
-        self.attn1_2 = nn.Linear((ch[0]//2), 1)
-        self.attn2_1 = nn.Linear(ch[1], ch[1]//2)
-        self.attn2_2 = nn.Linear(ch[1]//2, 1)
-        self.attn3_1 = nn.Linear(ch[2], ch[2]//2)
-        self.attn3_2 = nn.Linear(ch[2]//2, 1)
 
-    def forward(self, inputs):
-        inputs = inputs.unsqueeze(1) # [batch_size, 1, max_len, embed_size]
-        attn_weights = []
+        self.parameters
 
-        out1 = F.relu(self.conv1(inputs)) # [batch_size, 128, 18, 1]
-        attn1 = out1.view(out1.size(0)*out1.size(2), out1.size(1)) # [batch_size*18, 128]
-        attn1 = F.relu(self.attn1_1(attn1)) # [batch_size*18, 64]
-        attn1 = F.relu(self.attn1_2(attn1)) # [batch_size*18, 1]
-        attn1 = attn1.view(out1.size(0), out1.size(2))
-        attn1 = F.softmax(attn1, dim=1) # [batch_size, 18]
-        attn_weights.append(attn1.data.cpu().numpy())
-        attn1 = attn1.contiguous().view(attn1.size(0), 1, attn1.size(1), 1)
-        attn_out1 = out1 * attn1.expand_as(out1)
-        out1 = out1 + attn_out1
 
-        out2 = F.relu(self.conv2(out1)) # [batch_size, 256, 8, 1]
-        attn2 = out2.view(out2.size(0)*out2.size(2), out2.size(1))
-        attn2 = F.relu(self.attn2_1(attn2))
-        attn2 = F.relu(self.attn2_2(attn2))
-        attn2 = attn2.view(out2.size(0), out2.size(2))
-        attn2 = F.softmax(attn2, dim=1) # [batch_size, 18]
-        attn_weights.append(attn2.data.cpu().numpy())
-        attn2 = attn2.contiguous().view(attn2.size(0), 1, attn2.size(1), 1)
-        attn_out2 = out2 * attn2.expand_as(out2)
-        out2 = out2 + attn_out2
+    def forward(self, x):
+        attn_wordwise = []
+        attn_layerwise = []
+        attn_vectors = []
 
-        out3 = F.relu(self.conv3(out2)) # [batch_size, 512, 3, 1]
-        attn3 = out3.view(out3.size(0)*out3.size(2), out3.size(1))
-        attn3 = F.relu(self.attn3_1(attn3))
-        attn3 = F.relu(self.attn3_2(attn3))
-        attn3 = attn3.view(out3.size(0), out3.size(2))
-        attn3 = F.softmax(attn3, dim=1) # [batch_size, 18]
-        attn_weights.append(attn3.data.cpu().numpy())
-        attn3 = attn3.contiguous().view(attn3.size(0), 1, attn3.size(1), 1)
-        attn_out3 = out3 * attn3.expand_as(out3)
-        out3 = out3 + attn_out3
+        # raw input : [batch_size, max_len, embed_size]
+        x = x.unsqueeze(1).permute(0, 3, 2, 1)  # [bsz, embed_size, max_len, 1]
 
-        out4 = self.pool(out3) # [batch_size, 512, 1, 1]
-        out5 = self.dropout(out4)
-        out6 = self.fc1(out5.squeeze()) # [batch_size, 512]
-        out7 = torch.mean(out6) # [batch_size]
+        for i in range(len(self.convs)): # when i = 0, channel[0] = 128
+            x = F.relu(self.convs[i](x)) # [bsz, 128, 19, 1]
 
-        return out7, attn_weights
+            if i < (len(self.convs)-1):
+                # word-wise attention
+                attn_w = F.tanh(self.word_attn1[i](x)) # [bsz, 128, 19, 1]
+                attn_w = F.sigmoid(self.word_attn2[i](attn_w)) # [bsz, 1, 19, 1]
+                attn_wordwise.append(attn_w.squeeze().data.cpu().numpy()) # [bsz, 19]
+                x_a = torch.sum(x * attn_w.expand_as(x), 2, True) # [bsz, 128, 1, 1]
+            else: # For the last layer (no wordwise attention)
+                attn_wordwise.append(np.ones((x.size(0), 1), np.float32))
+                x_a = x # x.size() : [bsz. 1024, 1, 1]
+
+            # layer-wise attention
+            attn_l = F.tanh(self.layer_attn1[i](x_a)) # [bsz, 128, 1, 1]
+            attn_l = F.sigmoid(self.layer_attn2[i](attn_l)) # [bsz, 1, 1, 1]
+            attn_layerwise.append(attn_l.squeeze().data.cpu().numpy()) # [bsz, 1]
+            x_aa = x_a * attn_l.expand_as(x_a) # [bsz, 128, 1, 1]
+            attn_vectors.append(x_aa.squeeze()) # [bsz, 128]
+
+        x = self.dropout(torch.cat(attn_vectors, 1)) # [bsz, sum(channels)]
+
+        # fully-connected layers
+        for i, fc in enumerate(self.fc):
+            x = fc(x) # [bsz, sum(channels)]
+            if not i == len(self.fc) - 1:
+                x = F.tanh(x)
+        x = torch.mean(x) # [bsz], for WGAN loss
+        return x, [attn_wordwise, attn_layerwise]
+
+    def init_weights(self, layers):
+        init_std = 0.02
+        for layer in self.layers:
+            try:
+                layer.weight.data.normal_(0, init_std)
+                layer.bias.data.fill_(0)
+            except:
+                pass
 
     @staticmethod
     def train_(cfg, disc, real_states, fake_states):
@@ -97,13 +130,13 @@ class SampleDiscriminator(nn.Module):
         disc.zero_grad()
 
         # loss / backprop
-        err_d_real, attn_real = disc(real_states.detach())
+        err_d_real, attn_real, = disc(real_states.detach())
         one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
         err_d_real.backward(one)
 
         # negative samples ----------------------------
         # loss / backprop
-        err_d_fake, attn_fake = disc(fake_states.detach())
+        err_d_fake, attn_fake, = disc(fake_states.detach())
         err_d_fake.backward(one * -1)
 
         err_d = -(err_d_real - err_d_fake)
