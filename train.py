@@ -24,12 +24,15 @@ def print_line(char='-', row=1, length=130):
     for i in range(row):
         log.info(char * length)
 
-def ids_to_sent(vocab, ids, no_pad=True):
+def ids_to_sent(vocab, ids, length=None, no_pad=True):
+    if length is None:
+        length = 999
     if no_pad:
-        return " ".join([vocab.idx2word[idx] for idx in ids
-                         if idx != vocab.PAD_ID])
+        return " ".join([vocab.idx2word[idx] for i, idx in enumerate(ids)
+                         if idx != vocab.PAD_ID and i < length])
     else:
-        return " ".join([vocab.idx2word[idx] for idx in ids])
+        return " ".join([vocab.idx2word[idx] for i, idx in enumerate(ids)
+                         if i < length])
 
 def pad_after_eos(vocab, ids, last_eos=True):
     truncated_ids = []
@@ -53,16 +56,15 @@ def ids_to_sent_for_eval(vocab, ids):
         sents.append(ids_to_sent(vocab, truncated_ids, no_pad=True))
     return sents
 
-def print_ae_sents(vocab, target_ids, output_ids, nline=5):
-    coupled = list(zip(target_ids, output_ids))
+def print_ae_sents(vocab, target_ids, output_ids, lengths, nline=5):
+    coupled = list(zip(target_ids, output_ids, lengths))
     # shuffle : to prevent always printing the longest ones first
     np.random.shuffle(coupled)
-
     print_line()
-    for i, (tar_ids, out_ids) in enumerate(coupled):
+    for i, (tar_ids, out_ids, length) in enumerate(coupled):
         if i > nline - 1: break
-        log.info("[X] " + ids_to_sent(vocab, tar_ids))
-        log.info("[Y] " + ids_to_sent(vocab, out_ids))
+        log.info("[X] " + ids_to_sent(vocab, tar_ids, length=length))
+        log.info("[Y] " + ids_to_sent(vocab, out_ids, length=length))
         print_line()
 
 def print_info(sv):
@@ -77,7 +79,6 @@ def print_nums(sv, title, num_dict):
     for key, value in num_dict.items():
         print_str += " %s : %.8f |" % (key, value)
     log.info(print_str)
-
 
 def print_gen_sents(vocab, output_ids, nline=999):
     print_line()
@@ -195,10 +196,11 @@ def train(net):
 
             # train autoencoder ----------------------------
             for i in range(cfg.niters_ae): # default: 1 (constant)
-                batch = net.data_ae.next_or_none()
-                if batch is None:
+                if sv.epoch_stop():
+                    info.debug("epoch stop! epoch: %d, batch: %d"
+                                % (sv.epoch_step, sv.batch_step))
                     break  # end of epoch
-
+                batch = net.data_ae.next()
                 ae_loss, ae_acc = Autoencoder.train_(cfg, net.ae, batch)
                 net.optim_ae.step()
                 sv.inc_batch_step()
@@ -226,6 +228,8 @@ def train(net):
                         Autoencoder.decode_(cfg, net.ae, fake_code)
 
                     if cfg.with_attn and sv.epoch_step > cfg.disc_s_hold:
+                        # errs_d_s, attns = SampleDiscriminator.train_(
+                        #     cfg, net.disc_s, real_states, fake_states)
                         errs_d_s, attns = SampleDiscriminator.train_(
                             cfg, net.disc_s, real_states, fake_states)
                         err_d_s, err_d_s_real, err_d_s_fake = errs_d_s
@@ -259,10 +263,10 @@ def train(net):
             niter = sv.global_step
 
             # Autoencoder
-            targets, outputs = Autoencoder.eval_(cfg, net.ae, batch)
+            tars, outs = Autoencoder.eval_(cfg, net.ae, batch)
             print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
                                            Accuracy=ae_acc))
-            print_ae_sents(net.vocab, targets, outputs, cfg.log_nsample)
+            print_ae_sents(net.vocab, tars, outs, batch[2], cfg.log_nsample)
 
             # Generator + Discriminator_c
             fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)

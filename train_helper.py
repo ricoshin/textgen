@@ -57,10 +57,10 @@ class Network(object):
         dataloader_gan = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
                                     num_workers=0, collate_fn=batching_dataset,
                                     drop_last=True, pin_memory=True)
+
         #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
         #                                shuffle=False, num_workers=4,
         #                                collate_fn=batching_dataset)
-        self.nbatch = len(book_corpus) // cfg.batch_size
         self.data_ae = BatchIterator(dataloader_ae)
         self.data_gan = BatchIterator(dataloader_gan)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
@@ -131,9 +131,9 @@ class TrainingSupervisor(object):
         self.epoch_step = 1
         self.batch_step = 1
 
-        self.global_total = self.cfg.epochs * self.net.nbatch
+        self.global_total = self.cfg.epochs * len(net.data_ae)
         self.epoch_total = self.cfg.epochs
-        self.batch_total = self.net.nbatch
+        self.batch_total = len(net.data_ae)
         self.gan_schedule = self._init_gan_schedule()
         self.gan_niter = self.gan_schedule[0]
 
@@ -153,7 +153,7 @@ class TrainingSupervisor(object):
         self.progress.update(1)
 
     def inc_epoch_step(self):
-        self.batch_step = 0
+        self.batch_step = 1
         self.epoch_step += 1
         self.net.data_ae.reset()
         self._update_gan_schedule  # at epoch [2, 4, 6]
@@ -231,5 +231,8 @@ class TrainingSupervisor(object):
     def _update_gan_schedule(self):
         self.gan_iter = self.gan_schedule[self.epoch_step-1] # starts with 1
         if self.gan_iter > self.gan_schedule[self.epoch_step-2]:
-            log.info("GAN training loop schedule increased to {}"
+            log.info("GAN training loop schedule increased to : {}"
                      "".format(self.gan_niter))
+        else:
+            log.info("GAN training loop schedule remains constant : {}"
+                     "".format(self.gan_iter))
