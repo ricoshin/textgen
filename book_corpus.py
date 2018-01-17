@@ -8,9 +8,11 @@ import spacy
 from tqdm import tqdm
 
 import torch
+from torch.autograd import Variable
 from torch.utils.data import Dataset
 
 from multi_proc import LargeFileMultiProcessor, LineCounter
+from utils import to_gpu
 
 log = logging.getLogger('main')
 
@@ -118,6 +120,28 @@ class BookCorpusDataset(Dataset):
         #source = tokens
         return [int(x.strip(',')) for x in line.strip('[]\n').split()]
 
+class Batch(object):
+    def __init__(self, source, target, length):
+        self.__source = source
+        self.__target = target
+        self.__length = length
+
+    @property
+    def src(self):
+        return self.__source
+
+    @property
+    def tar(self):
+        return self.__target
+
+    @property
+    def len(self):
+        return self.__length
+
+    def cuda(self, volatile=False):
+        self.__source = self.__source.cuda()
+        self.__target = self.__target.cuda()
+
 
 class BatchingDataset(object):
     def __init__(self, vocab, gpu=False):
@@ -148,14 +172,14 @@ class BatchingDataset(object):
             source.append(x)
             target.append(y)
 
-        source = torch.LongTensor(np.array(source))
-        target = torch.LongTensor(np.array(target)).view(-1)
+        source = Variable(torch.LongTensor(np.array(source)))
+        target = Variable(torch.LongTensor(np.array(target)).view(-1))
 
         if self.gpu:
             source = source.cuda()
             target = target.cuda()
 
-        return source, target, lengths
+        return Batch(source, target, lengths)
 
     def _length_sort(self, items, lengths, descending=True):
         items = list(zip(items, lengths))

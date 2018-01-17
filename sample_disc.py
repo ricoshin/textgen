@@ -11,23 +11,33 @@ log = logging.getLogger('main')
 
 
 class SampleDiscriminator(nn.Module):
-    def __init__(self, max_len, filter_size, step_dim, embed_size, dropout):
+    def __init__(self, cfg, init_embed=None):
         super(SampleDiscriminator, self).__init__()
         # Sentence should be represented as a matrix : [max_len x step_size]
         # Step represetation can be :
         #   - hidden states which each word is generated from
         #   - embeddings that were porduced from generated word indices
         # inputs.size() : [batch_size(N), 1(C), max_len(H), embed_size(W)]
-        def next_height(in_size, filters_size, stride):
+        if cfg.disc_s_in == 'embed':
+            self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
+            if (init_embed is not None) and cfg.load_glove:
+                self.embed.weight.data.copy_(torch.from_numpy(init_embed))
+            if cfg.load_glove and cfg.fix_embed:
+                self.embed.weight.requires_grad = False
+
+        self.cfg = cfg
+        self.input_size = input_size = self.get_input_size()
+
+        def next_height(in_size, filter_size, stride):
             return (in_size - filter_size) // stride + 1
 
         num_conv = 4
         strides = [1, 2, 2] # last_one should be calculated later
         filters = [3, 3, 3] # last_one should be calculated later
-        channels = [step_dim] + [128*(2**(i)) for i in range(num_conv)]
+        channels = [input_size] + [128*(2**(i)) for i in range(num_conv)]
         fc_layers = []
 
-        heights = [max_len]
+        heights = [cfg.max_len + 1] # including sos/eos
         for i in range(len(filters)):
             heights.append(next_height(heights[i], filters[i], strides[i]))
 
@@ -67,9 +77,7 @@ class SampleDiscriminator(nn.Module):
         # fully-connected layers
         self.fc = nn.ModuleList(
             [nn.Linear(size_fc[i], size_fc[i+1]) for i in range(num_fc)])
-        self.dropout = nn.Dropout(dropout)
-
-        self.parameters
+        self.dropout = nn.Dropout(cfg.dropout)
 
 
     def forward(self, x):
@@ -81,6 +89,7 @@ class SampleDiscriminator(nn.Module):
         x = x.unsqueeze(1).permute(0, 3, 2, 1)  # [bsz, embed_size, max_len, 1]
 
         for i in range(len(self.convs)): # when i = 0, channel[0] = 128
+
             x = F.relu(self.convs[i](x)) # [bsz, 128, 19, 1]
 
             if i < (len(self.convs)-1):
@@ -119,8 +128,43 @@ class SampleDiscriminator(nn.Module):
             except:
                 pass
 
+    def get_input_size(self):
+        if self.cfg.disc_s_in == 'embed':
+            return self.cfg.embed_size
+        elif self.cfg.disc_s_in == 'hidden':
+            return self.cfg.hidden_size
+        else:
+            raise Exception("Unknown disc input type!")
+
+    def mask_sequence_with_n_inf(self, seqs, seq_lens):
+        max_seq_len = seqs.size(1)
+        masks = seqs.data.new(*seqs.size()).zero_()
+        for mask, seq_len in zip(masks, seq_lens):
+            seq_len = seq_len.data[0]
+            if seq_len < max_seq_len:
+                mask[seq_len:] = float('-inf')
+        masks = Variable(masks, requires_grad=False)
+        return seqs + masks
+
     @staticmethod
-    def train_(cfg, disc, real_states, fake_states):
+    def train_(cfg, disc, real_in, fake_in):
+        if cfg.disc_s_in == 'embed':
+            # real_in.size() : [batch_size, max_len]
+            # fake_in.size() : [batch_size*2, max_len, vocab_size]
+
+            # normal embedding lookup
+            real_in = disc.embed(real_in)
+
+            # soft embedding lookup (3D x 2D matrix multiplication)
+            max_len = fake_in.size(1)
+            vocab_size = fake_in.size(2)
+            embed_size = disc.embed.weight.size(1)
+
+            fake_in = fake_in.view(-1, vocab_size)
+            fake_in = torch.mm(fake_in, disc.embed.weight)
+            fake_in = fake_in.view(-1, max_len, embed_size)
+            # *_embed.size() : [batch_size, max_len, embed_size]
+
             # clamp parameters to a cube
         for p in disc.parameters():
             p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
@@ -129,16 +173,12 @@ class SampleDiscriminator(nn.Module):
         disc.train()
         disc.zero_grad()
 
-        # loss / backprop
-        err_d_real, attn_real, = disc(real_states.detach())
+        err_d_real, attn_real, = disc(real_in.detach())
+        err_d_fake, attn_fake, = disc(fake_in.detach())
+
         one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
         err_d_real.backward(one)
-
-        # negative samples ----------------------------
-        # loss / backprop
-        err_d_fake, attn_fake, = disc(fake_states.detach())
         err_d_fake.backward(one * -1)
-
         err_d = -(err_d_real - err_d_fake)
 
         return ((err_d.data[0], err_d_real.data[0], err_d_fake.data[0]),

@@ -72,6 +72,9 @@ parser.add_argument('--kernel_num', type=int, default=100,
                     help='number of each size of kernel')
 parser.add_argument('--with_attn', type=str2bool, default=True,
                     help='including n-gram attention discriminator')
+parser.add_argument('--disc_s_in', type=str, default='embed',
+                    choices=['embed', 'hidden', 'both'],
+                    help='disc_s input type')
 
 # Training Arguments
 parser.add_argument('--epochs', type=int, default=15,
@@ -110,8 +113,10 @@ parser.add_argument('--gan_clamp', type=float, default=0.01,
                     help='WGAN clamp')
 parser.add_argument('--backprop_gen', type=str2bool, default=False,
                     help='enable backpropagation gradient from disc_s to gen')
-parser.add_argument('--disc_s_hold', type=int, default=1, 
+parser.add_argument('--disc_s_hold', type=int, default=1,
                     help='num of initial epochs not training train disc_s')
+parser.add_argument('--fix_embed', type=str2bool, default=False,
+                    help='pretain embedding matrix weights (not trainable)')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',
