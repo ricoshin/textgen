@@ -38,12 +38,12 @@ def corp_bleu(references, hypotheses, isSmooth=False):
     ref = [truncate(s) for s in references]
     hyp = [truncate(s) for s in hypotheses]
     print('len(ref):', len(ref))
-    print('len(ref[0]):', len(ref[0]))
-    print(ref[0])
+    print('len(hyp):', len(hyp))
+
     if isSmooth == True:
-        return corpus_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
+        return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
     else:
-        return corpus_bleu(ref, hyp)
+        return corpus_bleu([ref]*len(hyp), hyp)
 
 #input : ["sentence"]
 def sent_bleu(reference, hypothesis, isSmooth=False):
