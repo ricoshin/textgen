@@ -17,7 +17,7 @@ def train_ngram_lm(kenlm_path, data_path, output_path, N):
     curdir = os.path.abspath(os.path.curdir)
     #
     command = "bin/lmplz -o "+str(N)+" <"+os.path.join(curdir, data_path) + \
-              " >"+os.path.join(curdir, output_path)
+              " >"+os.path.join(curdir, output_path) + ' --discount_fallback'
     os.system("cd "+os.path.join(kenlm_path, 'build')+" && "+command)
 
     load_kenlm()
@@ -34,8 +34,9 @@ def get_ppl(lm, sentences):
     total_nll = 0
     total_wc = 0
     for sent in sentences:
-        words = sent.strip().split()
-        score = lm.score(sent, bos=True, eos=False)
+        s = ' '.join(sent)
+        words = s.strip().split()
+        score = lm.score(s, bos=True, eos=False)
         word_count = len(words)
         total_wc += word_count
         total_nll += score

@@ -4,7 +4,7 @@ import os
 from book_corpus import BookCorpusDataset
 from parser import parser
 from preprocess import preprocess_data_vocab
-from train import train
+from train_with_kenlm import train
 from train_helper import Network
 from utils import Config, set_logger, prepare_paths
 

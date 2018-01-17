@@ -25,6 +25,8 @@ def truncate(sent):
         return ''.join(ch for ch in text if ch not in exclude)
     def remove_token(text):
         text = text.replace('<eos>', '')
+        while text.find('<unk>') != -1:
+            text = text.replace('<unk>', '')
         text = text.strip()
         return text
 

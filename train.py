@@ -14,6 +14,7 @@ from utils import set_random_seed, to_gpu
 from autoencoder import Autoencoder
 from code_disc import CodeDiscriminator
 from evaluate import evaluate_sents
+from evaluate_nltk import truncate
 from generator import Generator
 from sample_disc import SampleDiscriminator
 
@@ -23,61 +24,38 @@ log = logging.getLogger('main')
 codes originally from ARAE
 some parts are modified
 """
-def train_lm(eval_path, save_path):
-    # ppl = train_lm(eval_path=os.path.join(args.data_path, "test.txt"),
-    #                save_path="./output/{}/end_of_epoch{}_lm_generations".
-    #                format(args.outf, epoch))
+import utils_kenlm
 
-    # generate examples
-    indices = []
-    noise = to_gpu(args.cuda, Variable(torch.ones(100, args.z_size)))
-    # noise.size() : [100 x z_size]
-    for i in range(1000):
-        # 1000 batches size of 100
-        noise.data.normal_(0, 1)
-
-        fake_hidden = gan_gen(noise)
-        max_indices = autoencoder.generate(fake_hidden, args.maxlen)
-        # max_indices.size() : []
-        indices.append(max_indices.data.cpu().numpy())
-
-    indices = np.concatenate(indices, axis=0)
-    # generated indices from fake hidden state (100 x 1000 sentences)
+def train_lm(eval_data, gen_data, save_path, vocab):
+    # ppl = train_lm(eval_data=test_sents, gen_data = fake_sent,
+    #     save_path = "output/niter{}_lm_generation".format(niter))
+    # input : test dataset
+    #kenlm_path = '/home/jwy/venv/env36/lib/python3.6/site-packages/kenlm'
+    kenlm_path = '/home/jwy/kenlm'
+    #processing
+    eval_sents = [truncate(s) for s in eval_data]
+    gen_sents = [truncate(s) for s in gen_data]
 
     # write generated sentences to text file
     with open(save_path+".txt", "w") as f:
         # laplacian smoothing
-        for word in corpus.dictionary.word2idx.keys():
+        for word in vocab.word2idx.keys():
             f.write(word+"\n")
-        for idx in indices:
-            # generated sentence
-            words = [corpus.dictionary.idx2word[x] for x in idx]
-            # truncate sentences to first occurrence of <eos>
-            truncated_sent = []
-            for w in words:
-                if w != '<eos>':
-                    truncated_sent.append(w)
-                else:
-                    break
-            chars = " ".join(truncated_sent)
+        for sent in gen_sents:
+            chars = " ".join(sent)
             f.write(chars+"\n")
 
     # train language model on generated examples
     lm = train_ngram_lm(kenlm_path=args.kenlm_path,
-                        data_path=save_path+".txt",
+                        #data_path=save_path+".txt",
                         output_path=save_path+".arpa",
                         N=args.N)
-
-    # load sentences to evaluate on
-    with open(eval_path, 'r') as f:
-        lines = f.readlines()
-    sentences = [l.replace('\n', '') for l in lines]
-    ppl = get_ppl(lm, sentences)
-
+    # evaluate
+    ppl = get_ppl(lm, eval_sents)
     return ppl
 
 """
-codes originally from ARAE
+codes originall from ARAE
 end here
 """
 
@@ -363,10 +341,10 @@ def train(net):
             log.info(scores) # NOTE: change later!
 
             ### added by JWY
-            ppl = train_lm(eval_path=os.path.join(args.data_path, "test.txt"),
-                           save_path="./output/{}/end_of_epoch{}_lm_generations".
-                                     format(args.outf, epoch))
+            ppl = train_lm(eval_data=test_sents, gen_data = fake_sents, \
+                save_path = "output/niter{}_lm_generation".format(niter), net.vocab)
             print("Perplexity {}".format(ppl))
+            writer.add_scalar('Reverse_Perplexity', ppl, niter)
             ### end
 
             # Autoencoder

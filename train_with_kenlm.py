@@ -13,7 +13,8 @@ from utils import set_random_seed, to_gpu
 
 from autoencoder import Autoencoder
 from code_disc import CodeDiscriminator
-from evaluate import evaluate_sents, truncate
+from evaluate import evaluate_sents
+from evaluate_nltk import truncate
 from generator import Generator
 from sample_disc import SampleDiscriminator
 
@@ -23,13 +24,15 @@ log = logging.getLogger('main')
 codes originally from ARAE
 some parts are modified
 """
-import utils_kenlm
+from utils_kenlm import train_ngram_lm, get_ppl
 
-def train_lm(eval_data, gen_data, save_path):
+def train_lm(eval_data, gen_data, vocab, save_path, n):
     # ppl = train_lm(eval_data=test_sents, gen_data = fake_sent,
-    #     save_path = "output/niter{}_lm_generation".format(niter))
+    #     save_path = "output/niter{}_lm_generation".format(niter)
+    #     vocabe = net.vocab)
     # input : test dataset
-    kenlm_path = '/home/jwy/venv/env36/lib/python3.6/site-packages/kenlm'
+    #kenlm_path = '/home/jwy/venv/env36/lib/python3.6/site-packages/kenlm'
+    kenlm_path = '/home/jwy/kenlm'
     #processing
     eval_sents = [truncate(s) for s in eval_data]
     gen_sents = [truncate(s) for s in gen_data]
@@ -37,17 +40,19 @@ def train_lm(eval_data, gen_data, save_path):
     # write generated sentences to text file
     with open(save_path+".txt", "w") as f:
         # laplacian smoothing
-        for word in corpus.dictionary.word2idx.keys():
+        for word in vocab.word2idx.keys():
+            if word == '<unk>' or word == '<eos>' or word == '<pad>':
+                continue
             f.write(word+"\n")
         for sent in gen_sents:
             chars = " ".join(sent)
             f.write(chars+"\n")
 
     # train language model on generated examples
-    lm = train_ngram_lm(kenlm_path=args.kenlm_path,
-                        #data_path=save_path+".txt",
+    lm = train_ngram_lm(kenlm_path=kenlm_path,
+                        data_path=save_path+".txt",
                         output_path=save_path+".arpa",
-                        N=args.N)
+                        N=n)
     # evaluate
     ppl = get_ppl(lm, eval_sents)
     return ppl
@@ -122,7 +127,7 @@ def print_gen_sents(vocab, output_ids, nline=999):
     print_line()
     for i, ids in enumerate(output_ids):
         if i > nline - 1: break
-        ids = pad_after_eos(vocab, ids)
+        #ids = pad_after_eos(vocab, ids)
         log.info(ids_to_sent(vocab, ids))
         print_line()
     print_line(' ')
@@ -196,7 +201,7 @@ def print_attns(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
         for i, sent_wise in enumerate(zip(bat_ids, attns_w, attns_l)):
             ids, attns_w, attns_l = sent_wise
             if i > cfg.log_nsample - 1: break
-            ids = pad_after_eos(vocab, ids) # redundant for real_ids
+            # ids = pad_after_eos(vocab, ids) # redundant for real_ids
             words = [vocab.idx2word[idx] for idx in ids]
             word_str, attn_str_list = align_word_attn(words, attns_w, attns_l)
             for attn_str in reversed(attn_str_list): # from topmost attn layer
@@ -220,6 +225,15 @@ def load_test_data(cfg):
             test_sents.append(line.strip())
     return test_sents
 
+def append_pads(cfg, tensor, vocab):
+    pad_len = (cfg.max_len+1) - tensor.size(1)
+    if pad_len > 0:
+        pads = torch.ones([cfg.batch_size, pad_len]) * vocab.PAD_ID
+        pads = Variable(pads, requires_grad=False).long().cuda()
+        return torch.cat([tensor, pads], dim=1)
+    else:
+        return tensor
+
 def train(net):
     log.info("Training start!")
     cfg = net.cfg # for brevity
@@ -235,8 +249,6 @@ def train(net):
             # train autoencoder ----------------------------
             for i in range(cfg.niters_ae): # default: 1 (constant)
                 if sv.epoch_stop():
-                    info.debug("epoch stop! epoch: %d, batch: %d"
-                                % (sv.epoch_step, sv.batch_step))
                     break  # end of epoch
                 batch = net.data_ae.next()
                 ae_loss, ae_acc = Autoencoder.train_(cfg, net.ae, batch)
@@ -260,18 +272,21 @@ def train(net):
                     err_d_c, err_d_c_real, err_d_c_fake = errs_d_c
 
                     # train SampleDiscriminator
-                    real_ids, real_states = \
-                        Autoencoder.decode_(cfg, net.ae, real_code)
-                    fake_ids, fake_states = \
-                        Autoencoder.decode_(cfg, net.ae, fake_code)
+                    real_ids, real_outs = \
+                        Autoencoder.decode_(cfg, net.ae, real_code, net.vocab)
+                    fake_ids, fake_outs = \
+                        Autoencoder.decode_(cfg, net.ae, fake_code, net.vocab)
 
-                    if cfg.with_attn and sv.epoch_step > cfg.disc_s_hold:
-                        # errs_d_s, attns = SampleDiscriminator.train_(
-                        #     cfg, net.disc_s, real_states, fake_states)
+                    if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
+                        if cfg.disc_s_in == 'embed':
+                            # "real" fake
+                            fake_outs = torch.cat([real_outs, fake_outs], dim=0)
+                            # "real" real
+                            real_outs = append_pads(cfg, batch.src, net.vocab)
+
                         errs_d_s, attns = SampleDiscriminator.train_(
-                            cfg, net.disc_s, real_states, fake_states)
+                            cfg, net.disc_s, real_outs, fake_outs)
                         err_d_s, err_d_s_real, err_d_s_fake = errs_d_s
-
 
                     net.optim_ae.step()
                     net.optim_disc_c.step()
@@ -283,9 +298,9 @@ def train(net):
                     err_g, fake_code = Generator.train_(cfg, net.gen, net.ae,
                                                         net.disc_c)
                     net.optim_gen.step()
-                    if cfg.with_attn and sv.epoch_step > cfg.disc_s_hold:
+                    if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
                         err_dec = Autoencoder.decoder_train_(
-                            cfg, net.ae, net.disc_s, fake_code)
+                            cfg, net.ae, net.disc_s, fake_code, net.vocab)
                         net.optim_ae.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
@@ -304,11 +319,12 @@ def train(net):
             tars, outs = Autoencoder.eval_(cfg, net.ae, batch)
             print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
                                            Accuracy=ae_acc))
-            print_ae_sents(net.vocab, tars, outs, batch[2], cfg.log_nsample)
+            print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
             # Generator + Discriminator_c
             fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)
-            fake_ids, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden, False)
+            fake_ids, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden,
+                                              net.vocab, False)
             print_nums(sv, 'CodeGAN', dict(Loss_D_Total=err_d_c,
                                            Loss_D_Real=err_d_c_real,
                                            Loss_D_Fake=err_d_c_fake,
@@ -316,7 +332,7 @@ def train(net):
             print_gen_sents(net.vocab, fake_ids, cfg.log_nsample)
 
             # Discriminator_s
-            if cfg.with_attn and epoch > cfg.disc_s_hold:
+            if cfg.with_attn and epoch >= cfg.disc_s_hold:
                 print_nums(sv, 'SampleGAN', dict(Loss_D_Total=err_d_s,
                                                  Loss_D_Real=err_d_s_real,
                                                  Loss_D_Fake=err_d_s_fake,
@@ -328,9 +344,10 @@ def train(net):
             log.info(scores) # NOTE: change later!
 
             ### added by JWY
-            ppl = train_lm(eval_data=test_sents, gen_data = fake_sents, \
-                save_path = "output/niter{}_lm_generation".
-                          format(niter))
+            ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
+                vocab = net.vocab,
+                save_path = "out/niter{}_lm_generation".format(niter),
+                n = cfg.N)
             print("Perplexity {}".format(ppl))
             writer.add_scalar('Reverse_Perplexity', ppl, niter)
             ### end
@@ -346,7 +363,7 @@ def train(net):
             writer.add_scalar('GAN_c/4_Gen_loss', err_g, niter)
 
             # Discriminator_s + Decoder(the other Generator)
-            if cfg.with_attn and epoch > cfg.disc_s_hold:
+            if cfg.with_attn and epoch >= cfg.disc_s_hold:
                 writer.add_scalar('GAN_s/1_Disc_loss', err_d_s, niter)
                 writer.add_scalar('GAN_s/2_Disc_loss_real', err_d_s_real, niter)
                 writer.add_scalar('GAN_s/3_Disc_loss_fake', err_d_s_fake, niter)
