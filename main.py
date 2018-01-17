@@ -28,7 +28,7 @@ if __name__ == '__main__':
 
     # Load dataset
     book_corpus = BookCorpusDataset(cfg.data_filepath)
-
+    print('dataset loaded')
     # Train
     net = Network(cfg, book_corpus, vocab)
     train(net)
