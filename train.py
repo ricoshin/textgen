@@ -19,6 +19,68 @@ from sample_disc import SampleDiscriminator
 
 log = logging.getLogger('main')
 
+"""
+codes originally from ARAE
+some parts are modified
+"""
+def train_lm(eval_path, save_path):
+    # ppl = train_lm(eval_path=os.path.join(args.data_path, "test.txt"),
+    #                save_path="./output/{}/end_of_epoch{}_lm_generations".
+    #                format(args.outf, epoch))
+
+    # generate examples
+    indices = []
+    noise = to_gpu(args.cuda, Variable(torch.ones(100, args.z_size)))
+    # noise.size() : [100 x z_size]
+    for i in range(1000):
+        # 1000 batches size of 100
+        noise.data.normal_(0, 1)
+
+        fake_hidden = gan_gen(noise)
+        max_indices = autoencoder.generate(fake_hidden, args.maxlen)
+        # max_indices.size() : []
+        indices.append(max_indices.data.cpu().numpy())
+
+    indices = np.concatenate(indices, axis=0)
+    # generated indices from fake hidden state (100 x 1000 sentences)
+
+    # write generated sentences to text file
+    with open(save_path+".txt", "w") as f:
+        # laplacian smoothing
+        for word in corpus.dictionary.word2idx.keys():
+            f.write(word+"\n")
+        for idx in indices:
+            # generated sentence
+            words = [corpus.dictionary.idx2word[x] for x in idx]
+            # truncate sentences to first occurrence of <eos>
+            truncated_sent = []
+            for w in words:
+                if w != '<eos>':
+                    truncated_sent.append(w)
+                else:
+                    break
+            chars = " ".join(truncated_sent)
+            f.write(chars+"\n")
+
+    # train language model on generated examples
+    lm = train_ngram_lm(kenlm_path=args.kenlm_path,
+                        data_path=save_path+".txt",
+                        output_path=save_path+".arpa",
+                        N=args.N)
+
+    # load sentences to evaluate on
+    with open(eval_path, 'r') as f:
+        lines = f.readlines()
+    sentences = [l.replace('\n', '') for l in lines]
+    ppl = get_ppl(lm, sentences)
+
+    return ppl
+
+"""
+codes originally from ARAE
+end here
+"""
+
 
 def print_line(char='-', row=1, length=130):
     for i in range(row):
@@ -288,6 +350,13 @@ def train(net):
             fake_sents = ids_to_sent_for_eval(net.vocab, fake_ids)
             scores = evaluate_sents(test_sents, fake_sents)
             log.info(scores) # NOTE: change later!
+
+            ### added by JWY
+            ppl = train_lm(eval_path=os.path.join(args.data_path, "test.txt"),
+                           save_path="./output/{}/end_of_epoch{}_lm_generations".
+                                     format(args.outf, epoch))
+            print("Perplexity {}".format(ppl))
+            ### end
 
             # Autoencoder
             writer.add_scalar('AE/1_AE_loss', ae_loss, niter)
