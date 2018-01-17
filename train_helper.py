@@ -66,14 +66,7 @@ class Network(object):
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
         # Autoencoder
-        self.ae = Autoencoder(emsize=cfg.embed_size,
-                              nhidden=cfg.hidden_size,
-                              ntokens=self.ntokens,
-                              nlayers=cfg.nlayers,
-                              noise_radius=cfg.noise_radius,
-                              hidden_init=cfg.hidden_init,
-                              dropout=cfg.dropout,
-                              gpu=cfg.cuda)
+        self.ae = Autoencoder(cfg, vocab.embed_mat)
         # Generator
         self.gen = Generator(ninput=cfg.z_size,
                              noutput=cfg.hidden_size,
@@ -86,11 +79,7 @@ class Network(object):
                                         gpu=cfg.cuda)
         # Discriminator - sample level
         if cfg.with_attn:
-            self.disc_s = SampleDiscriminator(max_len=cfg.max_len+1,
-                                              filter_size=3,
-                                              step_dim=cfg.hidden_size,
-                                              embed_size=cfg.embed_size,
-                                              dropout=0.5)
+            self.disc_s = SampleDiscriminator(cfg, vocab.embed_mat)
 
         # Print network modules
         log.info(self.ae)
@@ -100,8 +89,14 @@ class Network(object):
             log.info(self.disc_s)
 
         # Optimizers
-        self.optim_ae = optim.SGD(self.ae.parameters(),
-                                  lr=cfg.lr_ae) # default: 1
+        params_ae = filter(lambda p: p.requires_grad, self.ae.parameters())
+        #params_gen = filter(lambda p: p.requires_grad, self.gen.parameters())
+        #params_disc_c = filter(lambda p: p.requires_grad,
+        #                       self.disc_c.parameters())
+        params_disc_s = filter(lambda p: p.requires_grad,
+                               self.disc_s.parameters())
+
+        self.optim_ae = optim.SGD(params_ae, lr=cfg.lr_ae) # default: 1
         self.optim_gen = optim.Adam(self.gen.parameters(),
                                     lr=cfg.lr_gan_g, # default: 0.00005
                                     betas=(cfg.beta1, 0.999))
@@ -109,7 +104,7 @@ class Network(object):
                                        lr=cfg.lr_gan_d, # default: 0.00001
                                        betas=(cfg.beta1, 0.999))
         if cfg.with_attn:
-            self.optim_disc_s = optim.Adam(self.disc_s.parameters(),
+            self.optim_disc_s = optim.Adam(params_disc_s,
                                            lr=cfg.lr_gan_d, # default: 0.00001
                                            betas=(cfg.beta1, 0.999))
 
@@ -126,10 +121,10 @@ class TrainingSupervisor(object):
         self.cfg = net.cfg
         self.net = net
 
-        # all steps should start from 1
-        self.global_step = 1
-        self.epoch_step = 1
-        self.batch_step = 1
+        # all steps should start from 0
+        self.global_step = 0
+        self.epoch_step = 0
+        self.batch_step = 0
 
         self.global_total = self.cfg.epochs * len(net.data_ae)
         self.epoch_total = self.cfg.epochs
@@ -153,6 +148,8 @@ class TrainingSupervisor(object):
         self.progress.update(1)
 
     def inc_epoch_step(self):
+        log.debug("Epoch %d stop! batch: %d"
+                   % (self.epoch_step, self.batch_step))
         self.batch_step = 1
         self.epoch_step += 1
         self.net.data_ae.reset()

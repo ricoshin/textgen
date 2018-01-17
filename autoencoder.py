@@ -3,6 +3,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
@@ -12,40 +13,41 @@ from utils import to_gpu
 log = logging.getLogger('main')
 
 class Autoencoder(nn.Module):
-    def __init__(self, emsize, nhidden, ntokens, nlayers, noise_radius=0.2,
-                 hidden_init=False, dropout=0, gpu=False):
+    def __init__(self, cfg, init_embed=None):
         super(Autoencoder, self).__init__()
-        self.nhidden = nhidden
-        self.emsize = emsize
-        self.ntokens = ntokens
-        self.nlayers = nlayers
-        self.noise_radius = noise_radius
-        self.hidden_init = hidden_init
-        self.dropout = dropout
-        self.gpu = gpu
-
-        self.start_symbols = to_gpu(gpu, Variable(torch.ones(10, 1).long()))
+        self.cfg = cfg
+        self.noise_radius = cfg.noise_radius
+        self.start_symbols = to_gpu(
+            cfg.cuda, Variable(torch.ones(10, 1).long()))
 
         # Vocabulary embedding
-        self.embedding = nn.Embedding(ntokens, emsize)
-        self.embedding_decoder = nn.Embedding(ntokens, emsize)
+        self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
+        self.embed_dec = nn.Embedding(cfg.vocab_size, cfg.embed_size)
+
+        if (init_embed is not None) and cfg.load_glove:
+            self.embed.weight.data.copy_(torch.from_numpy(init_embed))
+            self.embed_dec.weight.data.copy_(torch.from_numpy(init_embed))
+
+        if cfg.load_glove and cfg.fix_embed:
+            self.embed.weight.requires_grad = False
+            self.embed_dec.weight.requires_grad = False
 
         # RNN Encoder and Decoder
-        self.encoder = nn.LSTM(input_size=emsize,
-                               hidden_size=nhidden,
-                               num_layers=nlayers,
-                               dropout=dropout,
+        self.encoder = nn.LSTM(input_size=cfg.embed_size,
+                               hidden_size=cfg.hidden_size,
+                               num_layers=cfg.nlayers,
+                               dropout=cfg.dropout,
                                batch_first=True)
 
-        decoder_input_size = emsize+nhidden
+        decoder_input_size = cfg.embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
-                               hidden_size=nhidden,
+                               hidden_size=cfg.hidden_size,
                                num_layers=1,
-                               dropout=dropout,
+                               dropout=cfg.dropout,
                                batch_first=True)
 
         # Initialize Linear Transformation
-        self.linear = nn.Linear(nhidden, ntokens)
+        self.linear = nn.Linear(cfg.hidden_size, cfg.vocab_size)
 
         self.criterion_ce = nn.CrossEntropyLoss()
 
@@ -57,8 +59,9 @@ class Autoencoder(nn.Module):
         initrange = 0.1
 
         # Initialize Vocabulary Matrix Weight
-        self.embedding.weight.data.uniform_(-initrange, initrange)
-        self.embedding_decoder.weight.data.uniform_(-initrange, initrange)
+        if not self.cfg.load_glove:
+            self.embed.weight.data.uniform_(-initrange, initrange)
+            self.embed_dec.weight.data.uniform_(-initrange, initrange)
         # by default it's initialized with normal_(0,1)
 
         # Initialize Encoder and Decoder Weights
@@ -72,13 +75,15 @@ class Autoencoder(nn.Module):
         self.linear.bias.data.fill_(0)
 
     def init_hidden(self, bsz):
-        zeros1 = Variable(torch.zeros(self.nlayers, bsz, self.nhidden))
-        zeros2 = Variable(torch.zeros(self.nlayers, bsz, self.nhidden))
-        return (to_gpu(self.gpu, zeros1), to_gpu(self.gpu, zeros2))
+        nlayers = self.cfg.nlayers
+        nhidden = self.cfg.hidden_size
+        zeros1 = Variable(torch.zeros(nlayers, bsz, nhidden))
+        zeros2 = Variable(torch.zeros(nlayers, bsz, nhidden))
+        return (to_gpu(self.cfg.cuda, zeros1), to_gpu(self.cfg.cuda, zeros2))
 
     def init_state(self, bsz):
-        zeros = Variable(torch.zeros(self.nlayers, bsz, self.nhidden))
-        return to_gpu(self.gpu, zeros)
+        zeros = Variable(torch.zeros(self.cfg.nlayers, bsz, self.cfg.nhidden))
+        return to_gpu(self.cfg.cuda, zeros)
 
     def store_enc_grad_norm(self, grad):
         norm = torch.norm(grad, 2, 1)
@@ -112,7 +117,7 @@ class Autoencoder(nn.Module):
     def encode(self, indices, lengths, noise):
         # indices.size() : batch_size x max(lengths) [Variable]
         # len(lengths) : batch_size [List]
-        embeddings = self.embedding(indices)
+        embeddings = self.embed(indices)
         # embeddings.data.size() : batch_size x max(lenghts) x embed_dim [Variable]
         packed_embeddings = pack_padded_sequence(input=embeddings,
                                                  lengths=lengths,
@@ -151,10 +156,10 @@ class Autoencoder(nn.Module):
         # For newest version of PyTorch (as of 8/25) use this:
         hidden = torch.div(hidden, norms.unsqueeze(1).expand_as(hidden))
 
-        if noise and self.noise_radius > 0:
+        if noise and self.cfg.noise_radius > 0:
             gauss_noise = torch.normal(means=torch.zeros(hidden.size()),
                                        std=self.noise_radius)
-            hidden = hidden + to_gpu(self.gpu, Variable(gauss_noise))
+            hidden = hidden + to_gpu(self.cfg.cuda, Variable(gauss_noise))
 
         return hidden # batch_size x hidden_size
 
@@ -166,7 +171,7 @@ class Autoencoder(nn.Module):
         all_hidden = hidden.unsqueeze(1).repeat(1, maxlen, 1)
         # duplicate hidden states along all time steps (to be augumented to inputs)
 
-        if self.hidden_init:
+        if self.cfg.hidden_init:
             # initialize decoder hidden state to encoder output
             # (plus) initialze decoder cell state to zero state
             state = (hidden.unsqueeze(0), self.init_state(batch_size))
@@ -176,7 +181,7 @@ class Autoencoder(nn.Module):
             # initialize both states to zero states
             state = self.init_hidden(batch_size)
 
-        embeddings = self.embedding_decoder(indices) # for teacher forcing
+        embeddings = self.embed_dec(indices) # for teacher forcing
         augmented_embeddings = torch.cat([embeddings, all_hidden], 2)
         packed_embeddings = pack_padded_sequence(input=augmented_embeddings,
                                                  lengths=lengths,
@@ -192,8 +197,9 @@ class Autoencoder(nn.Module):
             #log.debug("Decoder gradient norm has been saved.")
 
         # reshape to batch_size*maxlen x nhidden before linear over vocab
-        decoded = self.linear(output.contiguous().view(-1, self.nhidden))
-        decoded = decoded.view(batch_size, maxlen, self.ntokens)
+        output = output.contiguous().view(-1, self.cfg.hidden_size)
+        decoded = self.linear(output) # output layer
+        decoded = decoded.view(batch_size, maxlen, self.cfg.vocab_size)
 
         return decoded # decoded.size() : batch x max_len x ntokens [logits]
 
@@ -229,16 +235,13 @@ class Autoencoder(nn.Module):
     def train_(cfg, ae, batch):
         ae.train()
         ae.zero_grad()
-
-        source, target, lengths = batch
-        source = to_gpu(cfg.cuda, Variable(source))
-        target = to_gpu(cfg.cuda, Variable(target)) # requires_grad=False
+        batch.cuda()
 
         # output.size(): batch_size x max_len x ntokens (logits)
-        output = ae(source, lengths, noise=True)
+        output = ae(batch.src, batch.len, noise=True)
 
         masked_output, masked_target = \
-            ae.mask_output_target(output, target, ae.ntokens)
+            ae.mask_output_target(output, batch.tar, cfg.vocab_size)
 
         max_vals, max_indices = torch.max(masked_output, 1)
         accuracy = torch.mean(max_indices.eq(masked_target).float())
@@ -259,19 +262,16 @@ class Autoencoder(nn.Module):
     @staticmethod
     def eval_(cfg, ae, batch):
         ae.eval()
-
-        source, target, lengths = batch
-        source = to_gpu(cfg.cuda, Variable(source, volatile=True))
-        target = to_gpu(cfg.cuda, Variable(target, volatile=True)) # requires_grad=False
+        batch.cuda(volatile=True)
 
         # output.size(): batch_size x max_len x ntokens (logits)
-        output = ae(source, lengths, noise=True)
+        output = ae(batch.src, batch.len, noise=True)
 
         masked_output, masked_target = \
-            ae.mask_output_target(output, target, ae.ntokens)
+            ae.mask_output_target(output, batch.tar, cfg.vocab_size)
 
         max_value, max_indices = torch.max(output, 2)
-        target = target.view(output.size(0), -1)
+        target = batch.tar.view(output.size(0), -1)
         outputs = max_indices.data.cpu().numpy()
         targets = target.data.cpu().numpy()
 
@@ -284,18 +284,15 @@ class Autoencoder(nn.Module):
             ae.zero_grad()
         else:
             ae.eval()
-
-        source, target, lengths = batch
-        source = to_gpu(cfg.cuda, Variable(source))
-        target = to_gpu(cfg.cuda, Variable(target))
+        batch.cuda()
 
         # when encode_only is True:
         #   encoded hidden states (batch_size x hidden_size) are returned
-        real_hidden = ae(source, lengths, noise=False, encode_only=True)
+        real_hidden = ae(batch.src, batch.len, noise=False, encode_only=True)
         return real_hidden
 
     @staticmethod
-    def decode_(cfg, ae, hidden, train=True):
+    def decode_(cfg, ae, hidden, vocab, train=True):
         if train:
             ae.train()
             ae.zero_grad()
@@ -308,7 +305,7 @@ class Autoencoder(nn.Module):
 
         batch_size = hidden.size(0)
 
-        if ae.hidden_init:
+        if cfg.hidden_init:
             # initialize decoder hidden state to encoder output
             state = (hidden.unsqueeze(0), ae.init_state(batch_size))
         else:
@@ -320,46 +317,75 @@ class Autoencoder(nn.Module):
         ae.start_symbols.data.fill_(1)
         # self.start_symbols.size() : [batch_size, 1]
 
-        embedding = ae.embedding_decoder(ae.start_symbols)
+        embedding = ae.embed_dec(ae.start_symbols)
         # embedding : [batch_size, 1, embedding_size]
         inputs = torch.cat([embedding, hidden.unsqueeze(1)], 2)
 
         # unroll
-        all_indices = []
-        all_hiddens = []
+        all_ids = []
+        all_outs = []
+
+        eos_id = 2
+        finished = torch.ByteTensor(batch_size, 1).zero_().cuda()
+        finished = Variable(finished, requires_grad=False)
         max_len = cfg.max_len + 1 # including sos/eos
         for i in range(max_len): # for each step
             # input very first step (sos totken + fake_z_code)
-            output, state = ae.decoder(inputs, state)
+            outs, state = ae.decoder(inputs, state)
             # output.size() : bath_size x 1(max_len) x nhidden
             # state.size() : 1(num_layer) x batch_size x nhidden
-            overvocab = ae.linear(output.squeeze(1))
+            overvocab = ae.linear(outs.squeeze(1))
             # output.squeeze(1) : batch_size x nhidden (output layer)
-            if not cfg.sample:
-                vals, indices = torch.max(overvocab, 1)
-            else: # sampling
-                probs = F.softmax(overvocab/temp) # get probabilities that sum to 1
-                indices = torch.multinomial(probs, 1).squeeze(1) # multinomial sampling
+            # overvocab : batch_size x ntokens
+            _, ids = torch.max(overvocab, 1, keepdim=True)
 
-            all_hiddens.append(output)
-            all_indices.append(indices.unsqueeze_(1)) # append generated vocab at each step
-            embedding = ae.embedding_decoder(indices)
-            inputs = torch.cat([embedding, hidden.unsqueeze(1)], 2)
+            if cfg.disc_s_in == 'embed':
+                outs = F.softmax(overvocab*100, 1).unsqueeze(1)
+                # [batch_size, 1 ntoken]
 
-        max_indices = torch.cat(all_indices, 1)
-        hidden_states = torch.cat(all_hiddens, 1)
+            # if eos token has already appeared, fill zeros
+            ids_mask = finished.eq(0).long()
+            outs_mask = finished.eq(0).unsqueeze(2).expand_as(outs).float()
+            ids = ids * ids_mask
+            outs = outs * outs_mask
+            finished += ids.eq(vocab.EOS_ID).byte()
 
-        # max_indices.size() : batch_size x max_len
-        # hidden_states.size() : batch_size x max_len X nhidden
-        max_indices = max_indices.data.cpu().numpy()
-        return max_indices, hidden_states
+            # append generated token ids & outs at each step
+            all_ids.append(ids)
+            all_outs.append(outs)
+            # for the next step
+            embed = ae.embed_dec(ids)
+            inputs = torch.cat([embed, hidden.unsqueeze(1)], 2)
+
+        # concatenate all the results
+        max_ids = torch.cat(all_ids, 1)
+        max_ids = max_ids.data.cpu().numpy()
+        outs = torch.cat(all_outs, 1)
+
+        # max_ids.size() : bsz x max_len
+        # outs.size() : bsz x max_len X (vocab or hidden)_size
+        return max_ids, outs
+
+
 
     @staticmethod
-    def decoder_train_(cfg, ae, disc_s, fake_code):
+    def decoder_train_(cfg, ae, disc_s, fake_code, vocab):
         ae.train()
         ae.zero_grad()
 
-        fake_ids, fake_states = ae.decode_(cfg, ae, fake_code)
+        fake_ids, fake_outs = ae.decode_(cfg, ae, fake_code, vocab)
+        # fake_outs.size() : [batch_size*2, max_len, vocab_size]
+
+        if cfg.disc_s_in == 'embed':
+            # soft embedding lookup (3D x 2D matrix multiplication)
+            max_len = fake_outs.size(1)
+            vocab_size = fake_outs.size(2)
+            embed_size = disc_s.embed.weight.size(1)
+
+            fake_outs = fake_outs.view(-1, vocab_size)
+            fake_outs = torch.mm(fake_outs, disc_s.embed.weight)
+            fake_outs = fake_outs.view(-1, max_len, embed_size)
+            # *_embed.size() : [batch_size, max_len, embed_size]
 
         def grad_hook(grad):
             if cfg.ae_grad_norm:
@@ -376,9 +402,8 @@ class Autoencoder(nn.Module):
             normed_grad *= math.fabs(cfg.gan_toenc)
             return normed_grad
 
-        fake_states.register_hook(grad_hook)
-
-        err_dec, attn_fake = disc_s(fake_states)
+        fake_outs.register_hook(grad_hook)
+        err_dec, attn_fake = disc_s(fake_outs)
 
         # loss / backprop
         one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
