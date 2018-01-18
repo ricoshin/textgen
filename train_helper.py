@@ -87,14 +87,13 @@ class Network(object):
         log.info(self.disc_c)
         if cfg.with_attn:
             log.info(self.disc_s)
-
+            params_disc_s = filter(lambda p: p.requires_grad,
+                                   self.disc_s.parameters())
         # Optimizers
         params_ae = filter(lambda p: p.requires_grad, self.ae.parameters())
         #params_gen = filter(lambda p: p.requires_grad, self.gen.parameters())
         #params_disc_c = filter(lambda p: p.requires_grad,
         #                       self.disc_c.parameters())
-        params_disc_s = filter(lambda p: p.requires_grad,
-                               self.disc_s.parameters())
 
         self.optim_ae = optim.SGD(params_ae, lr=cfg.lr_ae) # default: 1
         self.optim_gen = optim.Adam(self.gen.parameters(),

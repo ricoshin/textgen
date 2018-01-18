@@ -32,7 +32,7 @@ def train_lm(eval_data, gen_data, vocab, save_path, n):
     #     vocabe = net.vocab)
     # input : test dataset
     #kenlm_path = '/home/jwy/venv/env36/lib/python3.6/site-packages/kenlm'
-    kenlm_path = '/home/jwy/kenlm'
+    kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
     #processing
     eval_sents = [truncate(s) for s in eval_data]
     gen_sents = [truncate(s) for s in gen_data]
@@ -346,7 +346,7 @@ def train(net):
             ### added by JWY
             ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
                 vocab = net.vocab,
-                save_path = "out/niter{}_lm_generation".format(niter),
+                save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
                 n = cfg.N)
             print("Perplexity {}".format(ppl))
             writer.add_scalar('Reverse_Perplexity', ppl, niter)
