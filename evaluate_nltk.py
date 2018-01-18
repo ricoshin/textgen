@@ -37,8 +37,6 @@ def truncate(sent):
 def corp_bleu(references, hypotheses, isSmooth=False):
     ref = [truncate(s) for s in references]
     hyp = [truncate(s) for s in hypotheses]
-    print('len(ref):', len(ref))
-    print('len(hyp):', len(hyp))
 
     if isSmooth == True:
         return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
