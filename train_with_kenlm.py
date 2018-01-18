@@ -14,7 +14,7 @@ from utils import set_random_seed, to_gpu
 from autoencoder import Autoencoder
 from code_disc import CodeDiscriminator
 from evaluate import evaluate_sents
-from evaluate_nltk import truncate
+from evaluate_nltk import truncate, corp_bleu
 from generator import Generator
 from sample_disc import SampleDiscriminator
 
@@ -344,12 +344,15 @@ def train(net):
             log.info(scores) # NOTE: change later!
 
             ### added by JWY
+            bleu = corp_bleu(test_sents, fake_sents)
+            log.info('nltk bleu: {}'.format(bleu))
             ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
                 vocab = net.vocab,
                 save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
                 n = cfg.N)
-            print("Perplexity {}".format(ppl))
-            writer.add_scalar('Reverse_Perplexity', ppl, niter)
+            log.info("Perplexity {}".format(ppl))
+            writer.add_scalar('Eval/5_nltk_Bleu', bleu, niter)
+            writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, niter)
             ### end
 
             # Autoencoder
