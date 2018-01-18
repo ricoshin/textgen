@@ -21,7 +21,7 @@ from sample_disc import SampleDiscriminator
 log = logging.getLogger('main')
 
 """
-codes originally from ARAE
+codes originally from ARAE : https://github.com/jakezhaojb/ARAE
 some parts are modified
 """
 from utils_kenlm import train_ngram_lm, get_ppl
@@ -31,7 +31,7 @@ def train_lm(eval_data, gen_data, vocab, save_path, n):
     #     save_path = "output/niter{}_lm_generation".format(niter)
     #     vocabe = net.vocab)
     # input : test dataset
-    #kenlm_path = '/home/jwy/venv/env36/lib/python3.6/site-packages/kenlm'
+    #kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
     kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
     #processing
     eval_sents = [truncate(s) for s in eval_data]
@@ -58,7 +58,7 @@ def train_lm(eval_data, gen_data, vocab, save_path, n):
     return ppl
 
 """
-codes originall from ARAE
+codes originally from ARAE
 end here
 """
 
@@ -344,15 +344,16 @@ def train(net):
             log.info(scores) # NOTE: change later!
 
             ### added by JWY
-            bleu = corp_bleu(test_sents, fake_sents)
-            log.info('nltk bleu: {}'.format(bleu))
-            ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
-                vocab = net.vocab,
-                save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
-                n = cfg.N)
-            log.info("Perplexity {}".format(ppl))
-            writer.add_scalar('Eval/5_nltk_Bleu', bleu, niter)
-            writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, niter)
+            if sv.batch_step % (2*cfg.log_interval) == 0:
+                bleu = corp_bleu(test_sents, fake_sents)
+                log.info('nltk bleu: {}'.format(bleu))
+                ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
+                    vocab = net.vocab,
+                    save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
+                    n = cfg.N)
+                log.info("Perplexity {}".format(ppl))
+                writer.add_scalar('Eval/5_nltk_Bleu', bleu, niter)
+                writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, niter)
             ### end
 
             # Autoencoder

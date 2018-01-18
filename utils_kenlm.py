@@ -1,6 +1,6 @@
 """
 These codes are originally from ARAE utils.py
-https://github.com/jakezhaojb/ARAE?files=1
+https://github.com/jakezhaojb/ARAE
 Some parts are modified
 """
 import os
@@ -15,7 +15,7 @@ def train_ngram_lm(kenlm_path, data_path, output_path, N):
     """
     # create .arpa file of n-grams
     curdir = os.path.abspath(os.path.curdir)
-    #
+    # discount_fallback is added to prevent error
     command = "bin/lmplz -o "+str(N)+" <"+os.path.join(curdir, data_path) + \
               " >"+os.path.join(curdir, output_path) + ' --discount_fallback'
     os.system("cd "+os.path.join(kenlm_path, 'build')+" && "+command)

@@ -33,17 +33,37 @@ def truncate(sent):
     def lower(text):
         return text.lower()
     return remove_punc(remove_token(lower(sent))).split()
-#input : ["sentence", "sentence"]
-def corp_bleu(references, hypotheses, isSmooth=False):
+
+#hypotheses : ["sentence", "sentence", ...]
+#references : [["sentence", "sentence", ...], ["sent", "sent", ...], ...]
+#gram : 0=(default. cumulative n-gram score), 1~len(hyp[0])=(score with specified number of grams)
+def corp_bleu(references, hypotheses, gram=0, isSmooth=False):
     ref = [truncate(s) for s in references]
     hyp = [truncate(s) for s in hypotheses]
 
+    if gram >= len(hyp[0]): # this doesn't strictly perform case handling
+        print('number of gram exceeds the length of sentence')
+        return 0
+
     if isSmooth == True:
-        return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
+        if gram !=0:
+            w=[0]*999
+            w[gram-1] = 1
+            print('len(weights):',len(w))
+            return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
+        else:
+            return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
     else:
-        return corpus_bleu([ref]*len(hyp), hyp)
+        if gram !=0:
+            w=[0]*999
+            w[gram-1] =1
+            print('len(weights):',len(w))
+            return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False)
+        else:
+            return corpus_bleu([ref]*len(hyp), hyp)
 
 #input : ["sentence"]
+#This is early version, so it has few functionalities
 def sent_bleu(reference, hypothesis, isSmooth=False):
     ref = truncate(reference)
     hyp = truncate(hypothesis)
@@ -52,14 +72,29 @@ def sent_bleu(reference, hypothesis, isSmooth=False):
     else:
         return sentence_bleu(ref, hyp)
 
-#input : ref = ["sentence", "sent"], hyp = ["sent"]
-def corp_to_sent_bleu(reference, hypothesis, isSmooth=False):
+#input : ref = ["sent", "sent", ...], hyp = ["sent"]
+def corp_to_sent_bleu(reference, hypothesis, gram=0, isSmooth=False):
     ref = [truncate(s) for s in reference]
     hyp = truncate(hypothesis)
+
+    if gram >= len(hyp):
+        print('number of gram exceeds the length of sentence')
+        return 0
+
     if isSmooth == True:
-        return sentence_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
+        if gram !=0:
+            w=[0]*999
+            w[gram-1] = 1
+            return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
+        else:
+            return sentence_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
     else:
-        return sentence_bleu(ref, hyp)
+        if gram !=0:
+            w=[0]*999
+            w[gram-1] = 1
+            return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False)
+        else:
+            return sentence_bleu(ref, hyp)
 
 """
 Below codes are originally from TextVAE, multiwords branch, evaluate.py
@@ -125,6 +160,8 @@ def bleu_ngram(n, candidate, references):
         return 0.0
     return num_same / len(pred)
 
+# Warning : this funcion may output wrong result
+# This function has quite different(or wrong) algorithm compared to nltk
 def bleu_score(prediction, ground_truths, num_ngrams):
     prediction_tokens = normalize_answer(prediction).split()
     ground_truths_tokens = [normalize_answer(ground_truth).split() for ground_truth in ground_truths]
@@ -143,7 +180,9 @@ def bleu_score(prediction, ground_truths, num_ngrams):
     # brevity penalty
     num_pred = len(prediction_tokens)
     num_truth = min(len(truth) for truth in ground_truths_tokens)
-    if 1 <= num_pred <= num_truth:
+    if num_pred ==0:
+        penalty = 0
+    elif 1 <= num_pred <= num_truth:
         penalty = math.exp(1 - 1.0 * num_truth / num_pred)
     else:
         penalty = 1
