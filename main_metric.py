@@ -39,7 +39,3 @@ if __name__ == '__main__':
         test(net)
 
     #trainer = Trainer(cfg=cfg, vocab=vocab, data_loader=data_loader)
-    import ipdb; ipdb.set_trace()
-    ddd = batchify(data_loader)
-    iter(data_loader).__next__()
-    log.info('prepare_data_and_vocab')
