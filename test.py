@@ -234,13 +234,11 @@ def append_pads(cfg, tensor, vocab):
     else:
         return tensor
 
-def train(net):
-    log.info("Training start!")
+def test(net):
+    print("test session")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
     fixed_noise = Generator.make_noise_(cfg, cfg.eval_size) # for generator
-    writer = SummaryWriter(cfg.log_dir)
-    sv = TrainingSupervisor(net)
     test_sents = load_test_data(cfg)
 
     # exponentially decaying noise on autoencoder
@@ -251,69 +249,63 @@ def train(net):
     epoch = sv.epoch_step
     nbatch = sv.batch_step
     niter = sv.global_step
+    print('epoch {}, nbatch {}, niter {}'.format(epoch, nbatch, niter))
+    while 1:
+        # Autoencoder
+        print('default sample num:', cfg.log_nsample)
+        ae_num = input("enter the number of AE sample(quit:-1):")
+        if ae_num == -1:
+            continue
+        tars, outs = Autoencoder.eval_(cfg, net.ae, batch)
+        #print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
+        #                               Accuracy=ae_acc))
+        print_ae_sents(net.vocab, tars, outs, batch.len, ae_num)
 
-    # Autoencoder
-    tars, outs = Autoencoder.eval_(cfg, net.ae, batch)
-    print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
-                                   Accuracy=ae_acc))
-    print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+        # Generator + Discriminator_c
+        fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)
+        fake_ids, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden,
+                                          net.vocab, False)
+        #print_nums(sv, 'CodeGAN', dict(Loss_D_Total=err_d_c,
+        #                               Loss_D_Real=err_d_c_real,
+        #                               Loss_D_Fake=err_d_c_fake,
+        #                               Loss_G=err_g))
+        gen_num = input("enter the number of generator sample(quit:-1):")
+        if gen_num == -1:
+            continue
+        print_gen_sents(net.vocab, fake_ids, gen_num)
 
-    # Generator + Discriminator_c
-    fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)
-    fake_ids, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden,
-                                      net.vocab, False)
-    print_nums(sv, 'CodeGAN', dict(Loss_D_Total=err_d_c,
-                                   Loss_D_Real=err_d_c_real,
-                                   Loss_D_Fake=err_d_c_fake,
-                                   Loss_G=err_g))
-    print_gen_sents(net.vocab, fake_ids, cfg.log_nsample)
+        # Discriminator_s
+        if cfg.with_attn and epoch >= cfg.disc_s_hold:
+            print_nums(sv, 'SampleGAN', dict(Loss_D_Total=err_d_s,
+                                             Loss_D_Real=err_d_s_real,
+                                             Loss_D_Fake=err_d_s_fake,
+                                             Loss_Dec=err_dec))
+            print_attns(cfg, net.vocab, real_ids, fake_ids, *attns)
 
-    # Discriminator_s
-    if cfg.with_attn and epoch >= cfg.disc_s_hold:
-        print_nums(sv, 'SampleGAN', dict(Loss_D_Total=err_d_s,
-                                         Loss_D_Real=err_d_s_real,
-                                         Loss_D_Fake=err_d_s_fake,
-                                         Loss_Dec=err_dec))
-        print_attns(cfg, net.vocab, real_ids, fake_ids, *attns)
+        fake_sents = ids_to_sent_for_eval(net.vocab, fake_ids)
 
-    fake_sents = ids_to_sent_for_eval(net.vocab, fake_ids)
-    scores = evaluate_sents(test_sents, fake_sents)
-    log.info(scores) # NOTE: change later!
+        ### added by JWY
+        eval_setting = input("Do you want to perform full evaluation?(y/n):")
+        scores = evaluate_sents(test_sents, fake_sents)
+        log.info(scores) # NOTE: change later!
+        if eval_setting =='y' or eval_setting == 'Y':
+            bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)
+            bleu2 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=2)
+            bleu3 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=3)
+            bleu = corp_bleu(references=test_sents, hypotheses=fake_sents)
+            #how to load pre-built arpa file?
+            log.info('Eval/bleu-1', bleu1, niter)
+            log.info('Eval/bleu-2', bleu2, niter)
+            log.info('Eval/bleu-3', bleu3, niter)
+            log.info('Eval/5_nltk_Bleu', bleu, niter)
 
-    ### added by JWY
-    if sv.batch_step % (2*cfg.log_interval) == 0:
-        bleu = corp_bleu(references=test_sents, 
-                hypotheses=fake_sents, gram=4)
-        log.info('nltk bleu-{}: {}'.format(4, bleu))
+        bleu4 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=4)
         ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
             vocab = net.vocab,
-            save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
+            save_path = "out/{}/niter{}_lm_generation".format(cfg.name, niter),
             n = cfg.N)
-        log.info("Perplexity {}".format(ppl))
-        log.info('Eval/5_nltk_Bleu', bleu, niter)
+        log.info('Eval/bleu-4', bleu4, niter)
         log.info('Eval/6_Reverse_Perplexity', ppl, niter)
-    ### end
-
-    # Autoencoder
-    log.info('AE/1_AE_loss', ae_loss, niter)
-    log.info('AE/2_AE_accuracy',  ae_acc, niter)
-
-    # Discriminator_c + Generator
-    log.info('GAN_c/1_Disc_loss_total', err_d_c, niter)
-    log.info('GAN_c/2_Disc_loss_real', err_d_c_real, niter)
-    log.info('GAN_c/3_Disc_loss_fake', err_d_c_fake, niter)
-    log.info('GAN_c/4_Gen_loss', err_g, niter)
-
-    # Discriminator_s + Decoder(the other Generator)
-    if cfg.with_attn and epoch >= cfg.disc_s_hold:
-        log.info('GAN_s/1_Disc_loss', err_d_s, niter)
-        log.info('GAN_s/2_Disc_loss_real', err_d_s_real, niter)
-        log.info('GAN_s/3_Disc_loss_fake', err_d_s_fake, niter)
-        log.info('GAN_s/4_Dec_loss', err_dec, niter)
-
-    log.info('Eval/1_Bleu', scores['bleu'], niter)
-    log.info('Eval/2_Meteor', scores['meteor'], niter)
-    log.info('Eval/3_ExactMatch', scores['em'], niter)
-    log.info('Eval/4_F1', scores['f1'], niter)
+        ### end
 
 
