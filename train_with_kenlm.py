@@ -345,8 +345,9 @@ def train(net):
 
             ### added by JWY
             if sv.batch_step % (2*cfg.log_interval) == 0:
-                bleu = corp_bleu(test_sents, fake_sents)
-                log.info('nltk bleu: {}'.format(bleu))
+                bleu = corp_bleu(references=test_sents, 
+                        hypotheses=fake_sents, gram=4)
+                log.info('nltk bleu-{}: {}'.format(4, bleu))
                 ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
                     vocab = net.vocab,
                     save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),

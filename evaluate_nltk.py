@@ -47,17 +47,15 @@ def corp_bleu(references, hypotheses, gram=0, isSmooth=False):
 
     if isSmooth == True:
         if gram !=0:
-            w=[0]*999
+            w=[0]*4
             w[gram-1] = 1
-            print('len(weights):',len(w))
             return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
         else:
             return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
     else:
         if gram !=0:
-            w=[0]*999
+            w=[0]*4
             w[gram-1] =1
-            print('len(weights):',len(w))
             return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False)
         else:
             return corpus_bleu([ref]*len(hyp), hyp)
@@ -83,14 +81,14 @@ def corp_to_sent_bleu(reference, hypothesis, gram=0, isSmooth=False):
 
     if isSmooth == True:
         if gram !=0:
-            w=[0]*999
+            w=[0]*4
             w[gram-1] = 1
             return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
         else:
             return sentence_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
     else:
         if gram !=0:
-            w=[0]*999
+            w=[0]*4
             w[gram-1] = 1
             return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False)
         else:
