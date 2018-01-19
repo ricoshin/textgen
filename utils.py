@@ -77,6 +77,8 @@ def set_logger(cfg):
 
 
     # setup file handler
+    if cfg.test == True:
+        cfg.log_filepath = cfg.testlog_filepath
     file_handler = logging.FileHandler(cfg.log_filepath)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(log_level)
@@ -100,6 +102,7 @@ def prepare_paths(cfg):
     cfg.data_dir = os.path.join(cfg.data_dir, cfg.data_name)
     cfg.prepro_dir += ("_" + cfg.data_name)
     cfg.log_filepath = os.path.join(cfg.log_dir, "log.txt")
+    cfg.testlog_filepath = os.path.join(cfg.log_dir, "testlog.txt")
 
     if cfg.data_name == "books":
         if cfg.small:

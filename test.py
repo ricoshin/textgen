@@ -17,6 +17,7 @@ from evaluate import evaluate_sents
 from evaluate_nltk import truncate, corp_bleu
 from generator import Generator
 from sample_disc import SampleDiscriminator
+from datetime import datetime
 
 log = logging.getLogger('main')
 
@@ -235,7 +236,7 @@ def append_pads(cfg, tensor, vocab):
         return tensor
 
 def test(net):
-    print("test session")
+    log.info("test session {}".format(datetime.now()))
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
     fixed_noise = Generator.make_noise_(cfg, cfg.eval_size) # for generator
@@ -294,18 +295,18 @@ def test(net):
             bleu3 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=3)
             bleu = corp_bleu(references=test_sents, hypotheses=fake_sents)
             #how to load pre-built arpa file?
-            log.info('Eval/bleu-1', bleu1, niter)
-            log.info('Eval/bleu-2', bleu2, niter)
-            log.info('Eval/bleu-3', bleu3, niter)
-            log.info('Eval/5_nltk_Bleu', bleu, niter)
+            log.info('Eval/bleu-1', bleu1)
+            log.info('Eval/bleu-2', bleu2)
+            log.info('Eval/bleu-3', bleu3)
+            log.info('Eval/5_nltk_Bleu', bleu)
 
         bleu4 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=4)
         ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
             vocab = net.vocab,
             save_path = "out/{}/niter{}_lm_generation".format(cfg.name, niter),
             n = cfg.N)
-        log.info('Eval/bleu-4', bleu4, niter)
-        log.info('Eval/6_Reverse_Perplexity', ppl, niter)
+        log.info('Eval/bleu-4', bleu4)
+        log.info('Eval/6_Reverse_Perplexity', ppl)
         ### end
 
 
