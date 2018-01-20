@@ -235,7 +235,6 @@ class Autoencoder(nn.Module):
     def train_(cfg, ae, batch):
         ae.train()
         ae.zero_grad()
-        batch.cuda()
 
         # output.size(): batch_size x max_len x ntokens (logits)
         output = ae(batch.src, batch.len, noise=True)
@@ -262,7 +261,6 @@ class Autoencoder(nn.Module):
     @staticmethod
     def eval_(cfg, ae, batch):
         ae.eval()
-        batch.cuda(volatile=True)
 
         # output.size(): batch_size x max_len x ntokens (logits)
         output = ae(batch.src, batch.len, noise=True)
@@ -284,7 +282,6 @@ class Autoencoder(nn.Module):
             ae.zero_grad()
         else:
             ae.eval()
-        batch.cuda()
 
         # when encode_only is True:
         #   encoded hidden states (batch_size x hidden_size) are returned
@@ -340,7 +337,7 @@ class Autoencoder(nn.Module):
             _, ids = torch.max(overvocab, 1, keepdim=True)
 
             if cfg.disc_s_in == 'embed':
-                outs = F.softmax(overvocab*100, 1).unsqueeze(1)
+                outs = F.softmax(overvocab/1e-6, 1).unsqueeze(1)
                 # [batch_size, 1 ntoken]
 
             # if eos token has already appeared, fill zeros
@@ -377,15 +374,10 @@ class Autoencoder(nn.Module):
         # fake_outs.size() : [batch_size*2, max_len, vocab_size]
 
         if cfg.disc_s_in == 'embed':
+            # fake_in.size() : [batch_size*2, max_len, vocab_size]
             # soft embedding lookup (3D x 2D matrix multiplication)
-            max_len = fake_outs.size(1)
-            vocab_size = fake_outs.size(2)
-            embed_size = disc_s.embed.weight.size(1)
-
-            fake_outs = fake_outs.view(-1, vocab_size)
-            fake_outs = torch.mm(fake_outs, disc_s.embed.weight)
-            fake_outs = fake_outs.view(-1, max_len, embed_size)
-            # *_embed.size() : [batch_size, max_len, embed_size]
+            fake_outs = disc_s.soft_embed(fake_outs)
+            # [batch_size, max_len, embed_size]
 
         def grad_hook(grad):
             if cfg.ae_grad_norm:
@@ -403,11 +395,16 @@ class Autoencoder(nn.Module):
             return normed_grad
 
         fake_outs.register_hook(grad_hook)
-        err_dec, attn_fake = disc_s(fake_outs)
 
-        # loss / backprop
-        one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-        err_dec.backward(one)
+        # loss
+        pred_fake, attn_fake = disc_s(fake_outs)
+        label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_fake.size())))
+        loss = disc_s.criterion_bce(pred_fake, label_real)
 
-        err_dec = err_dec.data[0]
-        return err_dec
+        # pred average
+        mean = pred_fake.mean()
+
+        # backprop.
+        loss.backward()
+
+        return loss.data[0], mean.data[0]

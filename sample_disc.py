@@ -3,8 +3,10 @@ import numpy as np
 
 import torch
 import torch.nn as nn
+from torch.autograd import Variable
 import torch.nn.functional as F
 
+from attention import MultiLinear4D, WordAttention, LayerAttention
 from utils import to_gpu
 
 log = logging.getLogger('main')
@@ -26,109 +28,115 @@ class SampleDiscriminator(nn.Module):
                 self.embed.weight.requires_grad = False
 
         self.cfg = cfg
-        self.input_size = input_size = self.get_input_size()
+        self.in_c = in_chann = self.get_in_c_size()
 
-        def next_height(in_size, filter_size, stride):
-            return (in_size - filter_size) // stride + 1
+        def next_w(in_size, f_size, s_size):
+            # in:width, f:filter, s:stride
+            return (in_size - f_size) // s_size + 1
 
-        num_conv = 4
-        strides = [1, 2, 2] # last_one should be calculated later
-        filters = [3, 3, 3] # last_one should be calculated later
-        channels = [input_size] + [128*(2**(i)) for i in range(num_conv)]
-        fc_layers = []
+        n_conv = 4
+        s = [1, 2, 2] # stride (last_one should be calculated later)
+        f = [3, 3, 3] # filter (last_one should be calculated later)
+        #c = [in_chann] + [128*(2**(i)) for i in range(n_conv)] # channel
+        c = [in_chann] + [300, 400, 500, 600]
 
-        heights = [cfg.max_len + 1] # including sos/eos
-        for i in range(len(filters)):
-            heights.append(next_height(heights[i], filters[i], strides[i]))
+
+        w = [cfg.max_len + 1] # including sos/eos
+        for i in range(len(f)):
+            w.append(next_w(w[i], f[i], s[i]))
 
         # last layer (size dependant on the previous layer)
-        filters += [heights[-1]]
-        strides += [1]
-        heights += [1]
+        f += [w[-1]]
+        s += [1]
+        w += [1]
+        n_mat = c[-1] # for dimension matching
+        n_fc = 2
+        fc = [n_mat] * (n_fc) + [1]
 
-        num_fc = 2
-        size_fc  = [sum(channels[1:])] * (num_fc) + [1]
+        log.debug(f)  # filters = [3, 3, 3, 4]
+        log.debug(s)  # strides = [1, 2, 2, 1]
+        log.debug(w)  # widths = [21, 19, 9, 4, 1]
+        log.debug(c) # channels = [300, 300, 500, 700, 900]
+        log.debug(fc)  # size_fc = [1920, 1920, 1]
 
-        log.debug(filters)  # filters = [3, 3, 3, 4]
-        log.debug(strides)  # strides = [1, 2, 2, 1]
-        log.debug(heights)  # heights = [21, 19, 9, 4, 1]
-        log.debug(channels) # channels = [300, 128, 256, 512, 1024]
-        log.debug(size_fc)  # size_fc = [1920, 1920, 1]
+        # expected input dim
+        #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
 
-        ch = channels
         # main convoutional layers
-        self.convs = nn.ModuleList(
-            [nn.Conv2d(ch[i], ch[i+1], (filters[i], 1), strides[i])
-                for i in range(num_conv)])
+        self.convs = []
+        for i in range(n_conv):
+            conv = nn.Conv2d(c[i], c[i+1], (1, f[i]), s[i], bias=True)
+            self.convs.append(conv)
+            self.add_module("MainConv(%d)" % (i+1), conv)
+            #bias = nn.Parameter(torch.zeros([1, ch[i+1], heights[i+1], 1]))
 
-        ch = channels[1:]
+        c_ = c[1:] # [300, 500, 700, 900]
+        w_ = w[1:] # [19, 9, 4, 1]
+        #n_attns = [w // 4 for w in w_] # [4, 2, 1]
+        n_attns = [3, 1, 1]
+
         # wordwise attention layers
-        self.word_attn1 = nn.ModuleList(
-            [nn.Conv2d(ch[i], ch[i], (1, 1)) for i in range(num_conv-1)])
-        self.word_attn2 = nn.ModuleList(
-            [nn.Conv2d(ch[i], 1, (1, 1)) for i in range(num_conv-1)])
+        self.word_attns = []
+        for i in range(n_conv - 1):
+            word_attn = WordAttention(c_[i], w_[i], n_mat, n_attns[i],
+                                      last_act='softmax')
+            self.word_attns.append(word_attn)
+            self.add_module("WordAttention(%d)" % (i+1), word_attn)
 
-        # layerwise attention layers
-        self.layer_attn1 = nn.ModuleList(
-            [nn.Conv2d(ch[i], ch[i], (1, 1)) for i in range(num_conv)])
-        self.layer_attn2 = nn.ModuleList(
-            [nn.Conv2d(ch[i], 1, (1, 1)) for i in range(num_conv)])
+        # layerwise attention layer
+        self.layer_attn = LayerAttention(n_mat, n_conv, last_act='softmax')
 
-        # fully-connected layers
-        self.fc = nn.ModuleList(
-            [nn.Linear(size_fc[i], size_fc[i+1]) for i in range(num_fc)])
+        # final fc layers
+        self.last_fc = MultiLinear4D(n_mat, 1, dim=1, n_layers=2)
+
+        # dropout & binary CE
         self.dropout = nn.Dropout(cfg.dropout)
+        self.criterion_bce = nn.BCELoss()
 
 
     def forward(self, x):
-        attn_wordwise = []
-        attn_layerwise = []
-        attn_vectors = []
-
         # raw input : [batch_size, max_len, embed_size]
-        x = x.unsqueeze(1).permute(0, 3, 2, 1)  # [bsz, embed_size, max_len, 1]
+        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
 
-        for i in range(len(self.convs)): # when i = 0, channel[0] = 128
+        # main conv & wordwise attention
+        w_ctx =[]
+        w_attn = []
+        for i in range(len(self.convs)):
+            # main conv
+            x = F.relu(self.convs[i](x))
+            # wordwise attention
+            if i < (len(self.convs)-1): # before it reaches to the last layer
+                # compute wordwise attention
+                ctx, attn = self.word_attns[i](x)
+                # ctx : [bsz, n_mat, 1, 1]
+                # attn : [bsz, 1, 1, len]
+                attn = attn.squeeze().data.cpu().numpy() # [bsz, max_len]
+            else: # for the last layer (no wordwise attention)
+                ctx = x # pass the x without attention
+                attn = np.ones((x.size(0), 1), np.float32) # fill just one
 
-            x = F.relu(self.convs[i](x)) # [bsz, 128, 19, 1]
+            w_ctx.append(ctx)
+            w_attn.append(attn)
 
-            if i < (len(self.convs)-1):
-                # word-wise attention
-                attn_w = F.tanh(self.word_attn1[i](x)) # [bsz, 128, 19, 1]
-                attn_w = F.sigmoid(self.word_attn2[i](attn_w)) # [bsz, 1, 19, 1]
-                attn_wordwise.append(attn_w.squeeze().data.cpu().numpy()) # [bsz, 19]
-                x_a = torch.sum(x * attn_w.expand_as(x), 2, True) # [bsz, 128, 1, 1]
-            else: # For the last layer (no wordwise attention)
-                attn_wordwise.append(np.ones((x.size(0), 1), np.float32))
-                x_a = x # x.size() : [bsz. 1024, 1, 1]
+        # stack along height dim
+        x = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
 
-            # layer-wise attention
-            attn_l = F.tanh(self.layer_attn1[i](x_a)) # [bsz, 128, 1, 1]
-            attn_l = F.sigmoid(self.layer_attn2[i](attn_l)) # [bsz, 1, 1, 1]
-            attn_layerwise.append(attn_l.squeeze().data.cpu().numpy()) # [bsz, 1]
-            x_aa = x_a * attn_l.expand_as(x_a) # [bsz, 128, 1, 1]
-            attn_vectors.append(x_aa.squeeze()) # [bsz, 128]
+        # layerwise attention
+        l_ctx, l_attn = self.layer_attn(x)
+        # ctx : [bsz, n_mat, 1, 1]
+        # attn : [bsz, 1, n_layers, 1]
+        l_attn = l_attn.squeeze().permute(1,0).data.cpu().numpy()
+        # [n_layers, bsz, 1]
 
-        x = self.dropout(torch.cat(attn_vectors, 1)) # [bsz, sum(channels)]
+        # final fc
+        x = self.last_fc(l_ctx).squeeze() # [bsz]
+        x = F.sigmoid(x)
 
-        # fully-connected layers
-        for i, fc in enumerate(self.fc):
-            x = fc(x) # [bsz, sum(channels)]
-            if not i == len(self.fc) - 1:
-                x = F.tanh(x)
-        x = torch.mean(x) # [bsz], for WGAN loss
-        return x, [attn_wordwise, attn_layerwise]
+        # w_attn : [n_layers, bsz, len]
+        # layer_attn : [n_layers, bsz]
+        return x, [w_attn, l_attn]
 
-    def init_weights(self, layers):
-        init_std = 0.02
-        for layer in self.layers:
-            try:
-                layer.weight.data.normal_(0, init_std)
-                layer.bias.data.fill_(0)
-            except:
-                pass
-
-    def get_input_size(self):
+    def get_in_c_size(self):
         if self.cfg.disc_s_in == 'embed':
             return self.cfg.embed_size
         elif self.cfg.disc_s_in == 'hidden':
@@ -146,40 +154,58 @@ class SampleDiscriminator(nn.Module):
         masks = Variable(masks, requires_grad=False)
         return seqs + masks
 
+    def soft_embed(self, id_onehots):
+        # id_onehot : [batch_size, max_len, vocab_size]
+        # self.embed : [vocab_size, embed_size]
+        max_len = id_onehots.size(1)
+        vocab_size = id_onehots.size(2)
+        embed_size = self.embed.weight.size(1)
+
+        id_onehots = id_onehots.view(-1, vocab_size) # [bsz*max_len, vocab_size]
+        embeddings = torch.mm(id_onehots, self.embed.weight)
+        embeddings = embeddings.view(-1, max_len, embed_size)
+        return embeddings
+
     @staticmethod
     def train_(cfg, disc, real_in, fake_in):
+        disc.train()
+        disc.zero_grad()
+
         if cfg.disc_s_in == 'embed':
             # real_in.size() : [batch_size, max_len]
             # fake_in.size() : [batch_size*2, max_len, vocab_size]
-
             # normal embedding lookup
             real_in = disc.embed(real_in)
-
             # soft embedding lookup (3D x 2D matrix multiplication)
-            max_len = fake_in.size(1)
-            vocab_size = fake_in.size(2)
-            embed_size = disc.embed.weight.size(1)
-
-            fake_in = fake_in.view(-1, vocab_size)
-            fake_in = torch.mm(fake_in, disc.embed.weight)
-            fake_in = fake_in.view(-1, max_len, embed_size)
-            # *_embed.size() : [batch_size, max_len, embed_size]
+            fake_in = disc.soft_embed(fake_in)
+            # [batch_size, max_len, embed_size]
 
             # clamp parameters to a cube
         for p in disc.parameters():
             p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
             # WGAN clamp (default:0.01)
 
-        disc.train()
-        disc.zero_grad()
+        #real_in = real_in + real_in.eq(0).float() * (-1e-16)
+        #fake_in = fake_in + fake_in.eq(0).float() * (-1e-16)
 
-        err_d_real, attn_real, = disc(real_in.detach())
-        err_d_fake, attn_fake, = disc(fake_in.detach())
+        pred_real, attn_real = disc(real_in.detach())
+        pred_fake, attn_fake = disc(fake_in.detach())
 
-        one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-        err_d_real.backward(one)
-        err_d_fake.backward(one * -1)
-        err_d = -(err_d_real - err_d_fake)
+        # loss
+        label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
+        label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
+        loss_real = disc.criterion_bce(pred_real, label_real)
+        loss_fake = disc.criterion_bce(pred_fake, label_fake)
+        loss_total = loss_real + loss_fake
 
-        return ((err_d.data[0], err_d_real.data[0], err_d_fake.data[0]),
-               (attn_real, attn_fake))
+        # accuracy
+        real_mean = pred_real.mean()
+        fake_mean = pred_fake.mean()
+
+        # backprop.
+        loss_real.backward()
+        loss_fake.backward()
+
+        return ((loss_total.data[0], loss_real.data[0], loss_fake.data[0]),
+                (real_mean.data[0], fake_mean.data[0]),
+                (attn_real, attn_fake))
