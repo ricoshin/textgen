@@ -130,9 +130,6 @@ parser.add_argument('--N', type=int, default=5,
 parser.add_argument('--log_interval', type=int, default=200,
                     help='interval to log autoencoder training results')
 
-# Test Arguments
-parser.add_argument('--test', type=bool, default=False, help='pass True to enter test session')
-
 # Other
 parser.add_argument('--small', action='store_true') # just for debugging
 parser.add_argument('--log_level', type=str, default='debug')
@@ -140,3 +137,4 @@ parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', type=str2bool, default=True, help='use CUDA')
 parser.add_argument('--log_nsample', type=int, default=4)
+

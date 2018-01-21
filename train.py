@@ -14,50 +14,10 @@ from utils import set_random_seed, to_gpu
 from autoencoder import Autoencoder
 from code_disc import CodeDiscriminator
 from evaluate import evaluate_sents
-from evaluate_nltk import truncate
 from generator import Generator
 from sample_disc import SampleDiscriminator
 
 log = logging.getLogger('main')
-
-"""
-codes originally from ARAE
-some parts are modified
-"""
-import utils_kenlm
-
-def train_lm(eval_data, gen_data, save_path, vocab):
-    # ppl = train_lm(eval_data=test_sents, gen_data = fake_sent,
-    #     save_path = "output/niter{}_lm_generation".format(niter))
-    # input : test dataset
-    #kenlm_path = '/home/jwy/venv/env36/lib/python3.6/site-packages/kenlm'
-    kenlm_path = '/home/jwy/kenlm'
-    #processing
-    eval_sents = [truncate(s) for s in eval_data]
-    gen_sents = [truncate(s) for s in gen_data]
-
-    # write generated sentences to text file
-    with open(save_path+".txt", "w") as f:
-        # laplacian smoothing
-        for word in vocab.word2idx.keys():
-            f.write(word+"\n")
-        for sent in gen_sents:
-            chars = " ".join(sent)
-            f.write(chars+"\n")
-
-    # train language model on generated examples
-    lm = train_ngram_lm(kenlm_path=args.kenlm_path,
-                        #data_path=save_path+".txt",
-                        output_path=save_path+".arpa",
-                        N=args.N)
-    # evaluate
-    ppl = get_ppl(lm, eval_sents)
-    return ppl
-
-"""
-codes originall from ARAE
-end here
-"""
 
 
 def print_line(char='-', row=1, length=130):
@@ -383,13 +343,6 @@ def train(net):
             scores = evaluate_sents(test_sents, fake_sents)
             log.info(scores) # NOTE: change later!
 
-            ### added by JWY
-            ppl = train_lm(eval_data=test_sents, gen_data = fake_sents, \
-                save_path = "output/niter{}_lm_generation".format(niter), net.vocab)
-            print("Perplexity {}".format(ppl))
-            writer.add_scalar('Reverse_Perplexity', ppl, niter)
-            ### end
-
             # Autoencoder
             writer.add_scalar('AE/1_AE_loss', ae_loss, niter)
             writer.add_scalar('AE/2_AE_accuracy',  ae_acc, niter)
@@ -417,4 +370,5 @@ def train(net):
             sv.save()
 
         # end of epoch ----------------------------
-        sv.inc_epoch_step()
+sv.inc_epoch_step()
+

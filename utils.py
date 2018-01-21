@@ -58,7 +58,7 @@ class Config(object):
         return self.__dict__.__repr__()
 
 
-def set_logger(cfg, logger_name = 'main', filepath = cfg.log_filepath):
+def set_logger(cfg):
     #log_fmt = '%(asctime)s %(levelname)s %(message)s'
     #date_fmt = '%d/%m/%Y %H:%M:%S'
     #formatter = logging.Formatter(log_fmt, datefmt=date_fmt)
@@ -77,7 +77,7 @@ def set_logger(cfg, logger_name = 'main', filepath = cfg.log_filepath):
 
 
     # setup file handler
-    file_handler = logging.FileHandler(filepath)
+    file_handler = logging.FileHandler(cfg.log_filepath)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(log_level)
 
@@ -87,7 +87,7 @@ def set_logger(cfg, logger_name = 'main', filepath = cfg.log_filepath):
     stream_handler.setLevel(log_level)
 
     # get logger
-    logger = logging.getLogger(logger_name)
+    logger = logging.getLogger('main')
     logger.setLevel(log_level)
 
     # add file & stdio handler to logger
@@ -148,4 +148,5 @@ def set_random_seed(cfg):
 def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
-    return var
+return var
+
