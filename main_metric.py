@@ -4,8 +4,7 @@ import os
 from book_corpus import BookCorpusDataset
 from parser import parser
 from preprocess import preprocess_data_vocab
-from train_with_kenlm import train
-from test import test
+from train_with_kenlm import train, test
 from train_helper import Network
 from utils import Config, set_logger, prepare_paths
 
@@ -31,11 +30,7 @@ if __name__ == '__main__':
     book_corpus = BookCorpusDataset(cfg.data_filepath)
     print('dataset loaded')
     net = Network(cfg, book_corpus, vocab)
-    if cfg.test == False:
-        # Train
-        train(net)
-    else:
-        #Test
-        test(net)
+    # Train
+    train(net)
 
     #trainer = Trainer(cfg=cfg, vocab=vocab, data_loader=data_loader)
