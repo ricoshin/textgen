@@ -117,6 +117,10 @@ parser.add_argument('--disc_s_hold', type=int, default=1,
                     help='num of initial epochs not training train disc_s')
 parser.add_argument('--fix_embed', type=str2bool, default=True,
                     help='pretain embedding matrix weights (not trainable)')
+parser.add_argument('--word_temp', type=float, default=1e-2,
+                    help='softmax temperature for wordwise attention')
+parser.add_argument('--layer_temp', type=float, default=1e-2,
+                    help='softmax temperature for layerwise attention')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',

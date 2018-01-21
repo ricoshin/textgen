@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 import logging
 import numpy as np
 import os
@@ -317,3 +318,7 @@ def test(net):
         ### end
     print('exit test' + '\033[97m')
 
+=======
+def test(net):
+    pass
+>>>>>>> 38723c44ab8dec9252fbe1b9e40136ea6859de5c
