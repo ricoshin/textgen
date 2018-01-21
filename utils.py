@@ -104,6 +104,9 @@ def prepare_paths(cfg):
     cfg.log_filepath = os.path.join(cfg.log_dir, "log.txt")
     cfg.testlog_filepath = os.path.join(cfg.log_dir, "testlog.txt")
 
+    if cfg.small:
+        cfg.embed_size = 50
+
     if cfg.data_name == "books":
         if cfg.small:
             cfg.prepro_dir += "_small"

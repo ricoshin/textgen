@@ -17,31 +17,29 @@ log = logging.getLogger('main')
 
 
 class BatchIterator(object):
-    def __init__(self, dataloader):
+    def __init__(self, dataloader, cuda, volatile=False):
         self.__dataloader = dataloader
         self.__batch_iter = iter(self.__dataloader)
         self.__batch = None # initial value
+        self.__cuda = cuda
+        self.__volatile = volatile
 
     def __len__(self):
         return len(self.__dataloader)
 
     @property
     def batch(self):
-        return self.__batch
+        return self.__batch.variable(self.__volatile).cuda(self.__cuda)
 
     def reset(self):
         self.__batch_iter = iter(self.__dataloader)
 
-    def next_or_none(self):
-        self.__batch = next(self.__batch_iter, None)
-        return self.__batch
-
     def next(self):
-        self.next_or_none()
+        self.__batch = next(self.__batch_iter, None)
         if self.__batch is None:
             self.reset()
             self.__batch = next(self.__batch_iter)
-        return self.__batch
+        return self.__batch.variable(self.__volatile).cuda(self.__cuda)
 
 
 class Network(object):
@@ -51,18 +49,16 @@ class Network(object):
         self.ntokens = len(vocab)
 
         batching_dataset = BatchingDataset(vocab)
-        dataloader_ae = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
-                                   num_workers=0, collate_fn=batching_dataset,
-                                   drop_last=True, pin_memory=True)
-        dataloader_gan = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
-                                    num_workers=0, collate_fn=batching_dataset,
-                                    drop_last=True, pin_memory=True)
+        data_loader = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
+                                 num_workers=0, collate_fn=batching_dataset,
+                                 drop_last=True, pin_memory=True)
 
         #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
         #                                shuffle=False, num_workers=4,
         #                                collate_fn=batching_dataset)
-        self.data_ae = BatchIterator(dataloader_ae)
-        self.data_gan = BatchIterator(dataloader_gan)
+        self.data_ae = BatchIterator(data_loader, cfg.cuda)
+        self.data_gan = BatchIterator(data_loader, cfg.cuda)
+        self.data_eval = BatchIterator(data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
         # Autoencoder
@@ -103,6 +99,8 @@ class Network(object):
                                        lr=cfg.lr_gan_d, # default: 0.00001
                                        betas=(cfg.beta1, 0.999))
         if cfg.with_attn:
+            params_disc_s = filter(lambda p: p.requires_grad,
+                                   self.disc_s.parameters())
             self.optim_disc_s = optim.Adam(params_disc_s,
                                            lr=cfg.lr_gan_d, # default: 0.00001
                                            betas=(cfg.beta1, 0.999))

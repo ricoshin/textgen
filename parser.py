@@ -39,7 +39,7 @@ parser.add_argument('--load_glove', type=str2bool, default=True,
 # Model Arguments
 parser.add_argument('--vocab_size', type=int, default=10000,
                     help='cut vocabulary down to this size ')
-parser.add_argument('--embed_size', type=int, default=50,
+parser.add_argument('--embed_size', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--hidden_size', type=int, default=300,
                     help='number of hidden units per layer')
@@ -115,8 +115,12 @@ parser.add_argument('--backprop_gen', type=str2bool, default=False,
                     help='enable backpropagation gradient from disc_s to gen')
 parser.add_argument('--disc_s_hold', type=int, default=1,
                     help='num of initial epochs not training train disc_s')
-parser.add_argument('--fix_embed', type=str2bool, default=False,
+parser.add_argument('--fix_embed', type=str2bool, default=True,
                     help='pretain embedding matrix weights (not trainable)')
+parser.add_argument('--word_temp', type=float, default=1e-2,
+                    help='softmax temperature for wordwise attention')
+parser.add_argument('--layer_temp', type=float, default=1e-2,
+                    help='softmax temperature for layerwise attention')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',

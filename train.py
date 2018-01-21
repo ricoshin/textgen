@@ -114,7 +114,6 @@ def print_info(sv):
                 sv.batch_step, sv.batch_total))
 
 def print_nums(sv, title, num_dict):
-    print_info(sv)
     print_str = "| %s |" % title
     for key, value in num_dict.items():
         print_str += " %s : %.8f |" % (key, value)
@@ -146,8 +145,9 @@ def align_word_attn(words, attns_w, attns_l, min_width=4):
         attn_str_list.append(attn_str)
     return word_str, attn_str_list
 
-def mark_empty_attn(attns, max_len):
+def mark_empty_attn_w(attns, max_len):
     filter_n_stride = [(3,1), (3,2), (3,2), (4,1)]
+    #attns = list(zip(*attns)) # layer first
     assert len(filter_n_stride) == len(attns)
     filters, strides = zip(*filter_n_stride)
     stride_ = 1
@@ -159,12 +159,13 @@ def mark_empty_attn(attns, max_len):
     actual_stride = 1
     new_attns = []
     for i, attn in enumerate(attns):
-        # layer level
+        # layerwise
         if i == 0:
             prev_stride = 1
         else:
             prev_stride = strides[i-1]
         left_empty += (filters[i] // 2) * prev_stride
+        attn = np.array(attn)
         new_attn = np.ones([attn.shape[0], left_empty]) * (-1)
         empty_attn = np.ones([attn.shape[0], 1]) * (-1) # for column inserting
         attn_cnt = 0
@@ -186,18 +187,32 @@ def batch_first_attns(attns):
     attns_w, attns_s = attns
     return (list(zip(*attns_w)), list(zip(*attns_s)))
 
-def print_attns(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
-    real_attns[0] = mark_empty_attn(real_attns[0], cfg.max_len + 1)
-    fake_attns[0] = mark_empty_attn(fake_attns[0], cfg.max_len + 1)
-    real_attns = batch_first_attns(real_attns)
-    fake_attns = batch_first_attns(fake_attns)
-    # len(real_attns) : batch_size
-    # real_attns[0] : [array(attn_1[0]), array(attn_2[0], array(attn_3[0]))
+def halve_attns(attns):
+    attns_w, attns_l = attns
+    attns_w, attns_l = list(zip(*attns_w)), list(zip(*attns_l))
+    whole_batch = list(zip(attns_w, attns_l))
+    first_half = whole_batch[len(whole_batch)//2:]
+    first_w, first_l = list(zip(*first_half))
+    first_half = list(zip(*first_w)), list(zip(*first_l))
+    second_half = whole_batch[:len(whole_batch)//2]
+    second_w, second_l = list(zip(*second_half))
+    second_half = list(zip(*second_w)), list(zip(*second_l))
+    return [first_half, second_half]
+
+def print_attns(cfg, vocab, id_attn_pair):
+    # len(attns_real) : batch_size
+    # attns_real[0] : [array(attn_1[0]), array(attn_2[0], array(attn_3[0]))
     def print_aligned(bat_ids, bat_attns):
+        sample_num = 2
         attns_w, attns_l = bat_attns
+        #import ipdb; ipdb.set_trace()
+        attns_w = mark_empty_attn_w(attns_w, cfg.max_len + 1)
+        attns_w, attns_l = batch_first_attns([attns_w, attns_l])
+
         for i, sent_wise in enumerate(zip(bat_ids, attns_w, attns_l)):
+            # sentenwise in a batch
             ids, attns_w, attns_l = sent_wise
-            if i > cfg.log_nsample - 1: break
+            if i > sample_num - 1: break
             # ids = pad_after_eos(vocab, ids) # redundant for real_ids
             words = [vocab.idx2word[idx] for idx in ids]
             word_str, attn_str_list = align_word_attn(words, attns_w, attns_l)
@@ -206,13 +221,12 @@ def print_attns(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
             log.info(word_str)
             print_line()
 
-    print_line()
-    log.info('Attention on real samples')
-    print_line()
-    print_aligned(real_ids, real_attns)
-    log.info('Attention on fake samples')
-    print_line()
-    print_aligned(fake_ids, fake_attns)
+    for name, (ids, attns) in id_attn_pair.items():
+        # id_attn_pair : dict(tuple(ids: attns))
+        print_line()
+        log.info("Attention on %s samples" % name)
+        print_line()
+        print_aligned(ids, attns)
     print_line(' ')
 
 def load_test_data(cfg):
@@ -227,9 +241,19 @@ def append_pads(cfg, tensor, vocab):
     if pad_len > 0:
         pads = torch.ones([cfg.batch_size, pad_len]) * vocab.PAD_ID
         pads = Variable(pads, requires_grad=False).long().cuda()
-        return torch.cat([tensor, pads], dim=1)
+        return torch.cat((tensor, pads), dim=1)
     else:
         return tensor
+
+def mask_sequence_with_n_inf(self, seqs, seq_lens):
+    max_seq_len = seqs.size(1)
+    masks = seqs.data.new(*seqs.size()).zero_()
+    for mask, seq_len in zip(masks, seq_lens):
+        seq_len = seq_len.data[0]
+        if seq_len < max_seq_len:
+            mask[seq_len:] = float('-inf')
+    masks = Variable(masks, requires_grad=False)
+    return seqs + masks
 
 def train(net):
     log.info("Training start!")
@@ -262,43 +286,46 @@ def train(net):
                     batch = net.data_gan.next()
 
                     # train CodeDiscriminator
-                    real_code = Autoencoder.encode_(cfg, net.ae, batch)
-                    fake_code = Generator.generate_(cfg, net.gen, None, False)
-                    errs_d_c= CodeDiscriminator.train_(
-                        cfg, net.disc_c, net.ae, real_code, fake_code)
-                    err_d_c, err_d_c_real, err_d_c_fake = errs_d_c
+                    code_real = Autoencoder.encode_(cfg, net.ae, batch)
+                    code_fake = Generator.generate_(cfg, net.gen, None, False)
+                    err_dc = CodeDiscriminator.train_(
+                        cfg, net.disc_c, net.ae, code_real, code_fake)
+                    err_dc_total, err_dc_real, err_dc_fake = err_dc
 
                     # train SampleDiscriminator
-                    real_ids, real_outs = \
-                        Autoencoder.decode_(cfg, net.ae, real_code, net.vocab)
-                    fake_ids, fake_outs = \
-                        Autoencoder.decode_(cfg, net.ae, fake_code, net.vocab)
-
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
+                        ids_real, real_outs = \
+                            Autoencoder.decode_(cfg, net.ae, code_real,
+                                                net.vocab)
+                        ids_fake, fake_outs = \
+                            Autoencoder.decode_(cfg, net.ae, code_fake,
+                                                net.vocab)
                         if cfg.disc_s_in == 'embed':
                             # "real" fake
                             fake_outs = torch.cat([real_outs, fake_outs], dim=0)
                             # "real" real
-                            real_outs = append_pads(cfg, batch.src, net.vocab)
+                            real_outs = batch.tar.view(cfg.batch_size, -1)
+                            real_outs = append_pads(cfg, real_outs, net.vocab)
+                            #real_outs = batch.tar.view(cfg.batch_size, -1)
 
-                        errs_d_s, attns = SampleDiscriminator.train_(
+                        loss_ds, acc_ds, attns = SampleDiscriminator.train_(
                             cfg, net.disc_s, real_outs, fake_outs)
-                        err_d_s, err_d_s_real, err_d_s_fake = errs_d_s
+
+                        net.optim_disc_s.step()
 
                     net.optim_ae.step()
                     net.optim_disc_c.step()
-                    if cfg.with_attn:
-                        net.optim_disc_s.step()
 
                 # train generator(with disc_c) / decoder(with disc_s)
                 for i in range(cfg.niters_gan_g): # default: 1
-                    err_g, fake_code = Generator.train_(cfg, net.gen, net.ae,
+                    err_g, code_fake = Generator.train_(cfg, net.gen, net.ae,
                                                         net.disc_c)
-                    net.optim_gen.step()
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        err_dec = Autoencoder.decoder_train_(
-                            cfg, net.ae, net.disc_s, fake_code, net.vocab)
+                        loss_dec, acc_dec = Autoencoder.decoder_train_(
+                            cfg, net.ae, net.disc_s, code_fake, net.vocab)
                         net.optim_ae.step()
+
+                    net.optim_gen.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
                 continue
@@ -313,30 +340,46 @@ def train(net):
             niter = sv.global_step
 
             # Autoencoder
+            batch = net.data_eval.next()
             tars, outs = Autoencoder.eval_(cfg, net.ae, batch)
+            print_info(sv)
             print_nums(sv, 'AutoEnc', dict(Loss=ae_loss,
                                            Accuracy=ae_acc))
             print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
             # Generator + Discriminator_c
             fake_hidden = Generator.generate_(cfg, net.gen, fixed_noise, False)
-            fake_ids, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden,
-                                              net.vocab, False)
-            print_nums(sv, 'CodeGAN', dict(Loss_D_Total=err_d_c,
-                                           Loss_D_Real=err_d_c_real,
-                                           Loss_D_Fake=err_d_c_fake,
-                                           Loss_G=err_g))
-            print_gen_sents(net.vocab, fake_ids, cfg.log_nsample)
+            ids_fake_eval, _ = Autoencoder.decode_(cfg, net.ae, fake_hidden,
+                                                   net.vocab, False)
+            print_info(sv)
+            print_nums(sv, 'CodeGAN Loss', dict(D_Total=err_dc_total,
+                                                D_Real=err_dc_real,
+                                                D_Fake=err_dc_fake,
+                                                G=err_g))
+            print_gen_sents(net.vocab, ids_fake_eval, cfg.log_nsample)
 
             # Discriminator_s
             if cfg.with_attn and epoch >= cfg.disc_s_hold:
-                print_nums(sv, 'SampleGAN', dict(Loss_D_Total=err_d_s,
-                                                 Loss_D_Real=err_d_s_real,
-                                                 Loss_D_Fake=err_d_s_fake,
-                                                 Loss_Dec=err_dec))
-                print_attns(cfg, net.vocab, real_ids, fake_ids, *attns)
+                print_info(sv)
+                loss_ds_total, loss_ds_real, loss_ds_fake = loss_ds
+                acc_ds_real, acc_ds_fake = acc_ds
+                attns_real, attns_fake = attns
+                print_nums(sv, 'SampleGAN Loss', dict(D_Total=loss_ds_total,
+                                                      D_Real=loss_ds_real,
+                                                      D_Fake=loss_ds_fake,
+                                                      G_Dec=loss_dec))
+                print_nums(sv, 'SampleGAN Accuracy', dict(D_Real=acc_ds_real,
+                                                          D_Fake=acc_ds_fake,
+                                                          G_Dec=acc_dec))
 
-            fake_sents = ids_to_sent_for_eval(net.vocab, fake_ids)
+                ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
+                attns_fake_r, attns_fake_f = halve_attns(attns_fake)
+                print_attns(cfg, net.vocab,
+                            dict(Real=(ids_tar, attns_real),
+                                 Fake_R=(ids_real, attns_fake_r),
+                                 Fake_F=(ids_fake, attns_fake_f)))
+
+            fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
             scores = evaluate_sents(test_sents, fake_sents)
             log.info(scores) # NOTE: change later!
 
@@ -352,17 +395,19 @@ def train(net):
             writer.add_scalar('AE/2_AE_accuracy',  ae_acc, niter)
 
             # Discriminator_c + Generator
-            writer.add_scalar('GAN_c/1_Disc_loss_total', err_d_c, niter)
-            writer.add_scalar('GAN_c/2_Disc_loss_real', err_d_c_real, niter)
-            writer.add_scalar('GAN_c/3_Disc_loss_fake', err_d_c_fake, niter)
-            writer.add_scalar('GAN_c/4_Gen_loss', err_g, niter)
+            writer.add_scalar('GAN_C_Loss/1_D_total', err_dc_total, niter)
+            writer.add_scalar('GAN_C_Loss/2_D_real', err_dc_real, niter)
+            writer.add_scalar('GAN_C_Loss/3_D_fake', err_dc_fake, niter)
+            writer.add_scalar('GAN_C_Loss/4_G', err_g, niter)
 
             # Discriminator_s + Decoder(the other Generator)
             if cfg.with_attn and epoch >= cfg.disc_s_hold:
-                writer.add_scalar('GAN_s/1_Disc_loss', err_d_s, niter)
-                writer.add_scalar('GAN_s/2_Disc_loss_real', err_d_s_real, niter)
-                writer.add_scalar('GAN_s/3_Disc_loss_fake', err_d_s_fake, niter)
-                writer.add_scalar('GAN_s/4_Dec_loss', err_dec, niter)
+                writer.add_scalar('GAN_S_Loss/1_D_Total', loss_ds_total, niter)
+                writer.add_scalar('GAN_S_Loss/2_D_Real', loss_ds_real, niter)
+                writer.add_scalar('GAN_S_Loss/3_D_Fake', loss_ds_fake, niter)
+                writer.add_scalar('GAN_S_Loss/4_G_dec', loss_dec, niter)
+                writer.add_scalar('GAN_S_Acc/1_D_Real', acc_ds_real, niter)
+                writer.add_scalar('GAN_S_Acc/2_D_Fake', acc_ds_fake, niter)
 
             writer.add_scalar('Eval/1_Bleu', scores['bleu'], niter)
             writer.add_scalar('Eval/2_Meteor', scores['meteor'], niter)

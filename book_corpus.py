@@ -16,6 +16,7 @@ from utils import to_gpu
 
 log = logging.getLogger('main')
 
+
 class BookCorpusMultiProcessor(LargeFileMultiProcessor):
     def __init__(self, file_path, num_process=None,
                  min_len=0, max_len=999, tokenizer='spacy'):
@@ -138,9 +139,19 @@ class Batch(object):
     def len(self):
         return self.__length
 
-    def cuda(self, volatile=False):
-        self.__source = self.__source.cuda()
-        self.__target = self.__target.cuda()
+    def variable(self, volatile=False):
+        source = Variable(self.__source, volatile=volatile)
+        target = Variable(self.__target, volatile=volatile)
+        return Batch(source, target, self.__length)
+
+    def cuda(self, cuda=True):
+        if cuda:
+            source = self.__source.cuda()
+            target = self.__target.cuda()
+        else:
+            source = self.__source
+            target = self.__target
+        return Batch(source, target, self.__length)
 
 
 class BatchingDataset(object):
@@ -172,8 +183,9 @@ class BatchingDataset(object):
             source.append(x)
             target.append(y)
 
-        source = Variable(torch.LongTensor(np.array(source)))
-        target = Variable(torch.LongTensor(np.array(target)).view(-1))
+        source = torch.LongTensor(np.array(source))
+        target = torch.LongTensor(np.array(target)).view(-1)
+
 
         if self.gpu:
             source = source.cuda()
