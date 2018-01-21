@@ -235,10 +235,6 @@ def append_pads(cfg, tensor, vocab):
         return tensor
 
 def train(net):
-    isTest = input("Do you want to run test mode?(y/n):")
-    if isTest =='y' or isTest == 'Y': # full evaluation
-        test(net)
-        break
     log.info("Training start!")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)

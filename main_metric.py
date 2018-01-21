@@ -2,7 +2,7 @@ import logging
 import os
 
 from book_corpus import BookCorpusDataset
-from parser import parser
+from parser_metric import parser
 from preprocess import preprocess_data_vocab
 from train_with_kenlm import train
 from test import test

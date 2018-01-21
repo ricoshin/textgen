@@ -15,8 +15,8 @@ from evaluate import evaluate_sents
 from evaluate_nltk import truncate, corp_bleu
 from generator import Generator
 from sample_disc import SampleDiscriminator
-from train_with_kenlm import train_lm, ids_to_sent_for_eval,
-                                print_ae_sents, print_gen_sents,
+from train_with_kenlm import train_lm, ids_to_sent_for_eval, \
+                                print_ae_sents, print_gen_sents, \
                                 load_test_data
 
 

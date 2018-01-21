@@ -148,5 +148,5 @@ def set_random_seed(cfg):
 def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
-return var
+    return var
 

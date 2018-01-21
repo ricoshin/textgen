@@ -128,7 +128,7 @@ parser.add_argument('--log_interval', type=int, default=200,
 
 # Test Arguments
 parser.add_argument('--test', action='store_true', help='enter test session')
-parser.ad_argument('--test_log_dir', default="testlog.txt")
+parser.add_argument('--test_log_dir', default="testlog.txt")
 
 # Other
 parser.add_argument('--small', action='store_true') # just for debugging
