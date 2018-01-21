@@ -122,6 +122,10 @@ parser.add_argument('--word_temp', type=float, default=1e-2,
 parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 
+# Test
+parser.add_argument('--test', action='store_true', help='test session')
+parser.add_argument('--test_log_dir', type=str, default='testlog.txt', help='output test log file')
+
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',
                     help='sample when decoding for generation')

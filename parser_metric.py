@@ -127,7 +127,7 @@ parser.add_argument('--log_interval', type=int, default=200,
                     help='interval to log autoencoder training results')
 
 # Test Arguments
-parser.add_argument('--test', action='store_true', help='pass True to enter test session')
+parser.add_argument('--test', action='store_true', help='enter test session')
 parser.ad_argument('--test_log_dir', default="testlog.txt")
 
 # Other
