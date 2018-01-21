@@ -3,10 +3,12 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
+from sparsemax import Sparsemax
+
 
 class MultiLinear4D(nn.Module):
     def __init__(self, in_size, out_size, dim='', n_layers=2, bias=False,
-                 activation=F.tanh, dropout=0.5):
+                 activation=F.tanh, dropout=0.2):
         super(MultiLinear4D, self).__init__()
         # in_height.size() : [bsz, ch, 1, w]
         self.dim = dim
@@ -43,7 +45,7 @@ class WordAttention(nn.Module):
                  last_act='softmax'):
         super(WordAttention, self).__init__()
         # in_height.size() : [bsz, ch, 1, w]
-        assert(last_act in ['logistic', 'softmax'])
+        assert(last_act in ['sigmoid', 'softmax', 'sparsemax'])
         self.last_act = last_act
         self.attn_layers = []
 
@@ -52,12 +54,14 @@ class WordAttention(nn.Module):
             attn_layer = MultiLinear4D(in_chann, 1, dim=1, n_layers=2)
             self.attn_layers.append(attn_layer)
             self.add_module("attn_layer(%d)" % (i+1), attn_layer)
+        if last_act == 'sparsemax':
+            self.sparsemax = Sparsemax(1, in_width)
         # compression layer (over multiple attention)
         self.comp_layer = MultiLinear4D(in_width, 1, dim=3, n_layers=2)
         # matching layer (for same dimension output)
         self.match_layer = MultiLinear4D(in_chann, out_size, dim=1, n_layers=1)
 
-    def forward(self, x):
+    def forward(self, x, mask):
         # x : [bsz, ch, 1, w]
         weights = []
 
@@ -65,9 +69,11 @@ class WordAttention(nn.Module):
         for attn_layer in self.attn_layers:
             score = attn_layer(x) # [bsz, 1, 1, w]
             if self.last_act == 'softmax':
-                weight = F.softmax(score, dim=3) # same
-            elif self.last_act == 'logistic':
-                weight = F.sigmoid(score) # same
+                weight = F.softmax((score+mask)*10, dim=3) # same
+            elif self.last_act == 'sigmoid':
+                weight = F.sigmoid(score+mask) # same
+            elif self.last_act == 'sparsemax':
+                weight = self.sparsemax(score)
             else:
                 raise Exception('Unknown activation!')
             weights.append(weight)
@@ -92,18 +98,22 @@ class LayerAttention(nn.Module):
     def __init__(self, in_chann, n_layers, last_act='softmax'):
         super(LayerAttention, self).__init__()
         # in : [bsz, n_mat, n_layers, 1]
-        assert(last_act in ['logistic', 'softmax'])
+        assert(last_act in ['sigmoid', 'softmax', 'sparsemax'])
         self.last_act = last_act
         self.attn_layer = MultiLinear4D(in_chann, 1, dim=1, n_layers=2)
+        if last_act == 'sparsemax':
+            self.sparsemax = Sparsemax(1, n_layers)
 
     def forward(self, x):
         # x : [bsz, n_mat, n_layers, 1]
         # layerwise attention layers
         score = self.attn_layer(x) # [bsz, 1, n_layers, 1]
         if self.last_act == 'softmax':
-            weight = F.softmax(score*1000, dim=2) # same
-        elif self.last_act == 'logistic':
+            weight = F.softmax(score*10, dim=2) # same
+        elif self.last_act == 'sigmoid':
             weight = F.sigmoid(score) # same
+        elif self.last_act == 'sparsemax':
+            weight = self.sparsemax(score)
         else:
             raise Exception('Unknown activation!')
 

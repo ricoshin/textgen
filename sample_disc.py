@@ -64,16 +64,20 @@ class SampleDiscriminator(nn.Module):
 
         # main convoutional layers
         self.convs = []
+        self.convs_no_bias = [] # just for calculate zero pad
         for i in range(n_conv):
             conv = nn.Conv2d(c[i], c[i+1], (1, f[i]), s[i], bias=True)
+            conv_nb = nn.Conv2d(1, 1, (1, f[i]), s[i], bias=False)
             self.convs.append(conv)
+            self.convs_no_bias.append(conv_nb)
+            self.add_module("MainConv(%d)" % (i+1), conv)
             self.add_module("MainConv(%d)" % (i+1), conv)
             #bias = nn.Parameter(torch.zeros([1, ch[i+1], heights[i+1], 1]))
 
         c_ = c[1:] # [300, 500, 700, 900]
         w_ = w[1:] # [19, 9, 4, 1]
         #n_attns = [w // 4 for w in w_] # [4, 2, 1]
-        n_attns = [3, 1, 1]
+        n_attns = [3, 2, 1]
 
         # wordwise attention layers
         self.word_attns = []
@@ -93,10 +97,24 @@ class SampleDiscriminator(nn.Module):
         self.dropout = nn.Dropout(cfg.dropout)
         self.criterion_bce = nn.BCELoss()
 
+    def generate_pad_masks(self, x):
+        # [bsz, embed_size, 1, max_len]
+        x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False).cpu()
+        # [bsz, 1, 1, max_len]
+        masks = []
+        for conv in self.convs_no_bias:
+            x = conv(x) # [bsz, 1, 1, max_len]
+            zeros = x.eq(0).data
+            mask = torch.zeros(x.size()).masked_fill_(zeros, float('-inf'))
+            masks.append(Variable(mask, requires_grad=False).cuda()) # mask pads as 0s
+        return masks
 
     def forward(self, x):
         # raw input : [batch_size, max_len, embed_size]
         x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
+
+        # generate mask for wordwise attention
+        pad_masks = self.generate_pad_masks(x)
 
         # main conv & wordwise attention
         w_ctx =[]
@@ -107,7 +125,7 @@ class SampleDiscriminator(nn.Module):
             # wordwise attention
             if i < (len(self.convs)-1): # before it reaches to the last layer
                 # compute wordwise attention
-                ctx, attn = self.word_attns[i](x)
+                ctx, attn = self.word_attns[i](x, pad_masks[i])
                 # ctx : [bsz, n_mat, 1, 1]
                 # attn : [bsz, 1, 1, len]
                 attn = attn.squeeze().data.cpu().numpy() # [bsz, max_len]

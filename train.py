@@ -264,7 +264,9 @@ def train(net):
                             # "real" fake
                             fake_outs = torch.cat([real_outs, fake_outs], dim=0)
                             # "real" real
-                            real_outs = append_pads(cfg, batch.src, net.vocab)
+                            real_outs = batch.tar.view(cfg.batch_size, -1)
+                            real_outs = append_pads(cfg, real_outs, net.vocab)
+                            #real_outs = batch.tar.view(cfg.batch_size, -1)
 
                         loss_ds, acc_ds, attns = SampleDiscriminator.train_(
                             cfg, net.disc_s, real_outs, fake_outs)
@@ -330,10 +332,10 @@ def train(net):
                                                           D_Fake=acc_ds_fake,
                                                           G_Dec=acc_dec))
 
-                ids_src = batch.src.data.cpu().numpy()
+                ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
                 attns_fake_r, attns_fake_f = halve_attns(attns_fake)
                 print_attns(cfg, net.vocab,
-                            dict(Real=(ids_src, attns_real),
+                            dict(Real=(ids_tar, attns_real),
                                  Fake_R=(ids_real, attns_fake_r),
                                  Fake_F=(ids_fake, attns_fake_f)))
 

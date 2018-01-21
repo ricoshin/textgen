@@ -245,7 +245,7 @@ class Autoencoder(nn.Module):
         max_vals, max_indices = torch.max(masked_output, 1)
         accuracy = torch.mean(max_indices.eq(masked_target).float())
 
-        loss = ae.criterion_ce(masked_output/cfg.temp, masked_target)
+        loss = ae.criterion_ce(masked_output, masked_target)
         # criterion_ce == torch.nn.CrossEntropyLoss
         # criterion_ce(input, class)
         # input : scores for each class / size = (batch_size, class_num)
