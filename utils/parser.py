@@ -137,3 +137,4 @@ parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', type=str2bool, default=True, help='use CUDA')
 parser.add_argument('--log_nsample', type=int, default=4)
+parser.add_argument('--test', action='store_true', help='run test mode')

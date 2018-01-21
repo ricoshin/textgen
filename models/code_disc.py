@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from utils import to_gpu
+from train.train_helper import ResultPackage
+from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
@@ -76,60 +77,3 @@ class CodeDiscriminator(nn.Module):
                 layer.bias.data.fill_(0)
             except:
                 pass
-
-    @staticmethod
-    def train_(cfg, disc, ae, real_hidden, fake_hidden):
-            # clamp parameters to a cube
-        for p in disc.parameters():
-            p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
-            # WGAN clamp (default:0.01)
-
-        disc.train()
-        disc.zero_grad()
-
-        # positive samples ----------------------------
-        def grad_hook(grad):
-            # Gradient norm: regularize to be same
-            # code_grad_gan * code_grad_ae / norm(code_grad_gan)
-
-            # regularize GAN gradient in AE(encoder only) gradient scale
-            # GAN gradient * [norm(Encoder gradient) / norm(GAN gradient)]
-            if cfg.ae_grad_norm: # default:True / norm code gradient from critic->encoder
-                gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
-                if gan_norm == .0:
-                    log.warning("zero code_gan norm!")
-                    import ipdb; ipdb.set_trace()
-                    normed_grad = grad
-                else:
-                    normed_grad = grad * ae.enc_grad_norm / gan_norm
-                # grad : gradient from GAN
-                # aeoder.grad_norm : norm(gradient from AE)
-                # gan_norm : norm(gradient from GAN)
-            else:
-                normed_grad = grad
-
-            # weight factor and sign flip
-            normed_grad *= -math.fabs(cfg.gan_toenc)
-            # math.fabs() : same as abs() but converts its argument to float if it can
-            #   (otherwise, throws an exception)
-            # args.gan_toenc: weight factor passing gradient from gan to encoder
-            #   default: -0.01
-            return normed_grad # -0.01 <- why flipping?
-
-        real_hidden.register_hook(grad_hook) # normed_grad
-        # loss / backprop
-        err_d_real = disc(real_hidden)
-        one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-        err_d_real.backward(one)
-
-        # negative samples ----------------------------
-        # loss / backprop
-        err_d_fake = disc(fake_hidden.detach())
-        err_d_fake.backward(one * -1)
-
-        # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs
-        torch.nn.utils.clip_grad_norm(ae.parameters(), cfg.clip)
-
-        err_d = -(err_d_real - err_d_fake)
-
-        return err_d.data[0], err_d_real.data[0], err_d_fake.data[0]
