@@ -11,8 +11,8 @@ import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset
 
-from multi_proc import LargeFileMultiProcessor, LineCounter
-from utils import to_gpu
+from dataloader.multi_proc import LargeFileMultiProcessor, LineCounter
+from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
@@ -198,3 +198,29 @@ class BatchingDataset(object):
         items.sort(key=lambda x: x[1], reverse=True)
         items, lengths = zip(*items)
         return list(items), list(lengths)
+
+
+class BatchIterator(object):
+    def __init__(self, dataloader, cuda, volatile=False):
+        self.__dataloader = dataloader
+        self.__batch_iter = iter(self.__dataloader)
+        self.__batch = None # initial value
+        self.__cuda = cuda
+        self.__volatile = volatile
+
+    def __len__(self):
+        return len(self.__dataloader)
+
+    @property
+    def batch(self):
+        return self.__batch.variable(self.__volatile).cuda(self.__cuda)
+
+    def reset(self):
+        self.__batch_iter = iter(self.__dataloader)
+
+    def next(self):
+        self.__batch = next(self.__batch_iter, None)
+        if self.__batch is None:
+            self.reset()
+            self.__batch = next(self.__batch_iter)
+        return self.__batch.variable(self.__volatile).cuda(self.__cuda)
