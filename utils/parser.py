@@ -123,11 +123,8 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 
 # Test
-parser.add_argument('--test', action='store_true', help='test session')
+parser.add_argument('--test', action='store_true', help='run test mode')
 parser.add_argument('--test_log_dir', type=str, default='testlog.txt', help='output test log file')
-
-# Test
-parser.add_argument('--test', action='store_true', help='test session')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',
@@ -144,5 +141,3 @@ parser.add_argument('--seed', type=int, default=1111,
                     help='random seed')
 parser.add_argument('--cuda', type=str2bool, default=True, help='use CUDA')
 parser.add_argument('--log_nsample', type=int, default=4)
-parser.add_argument('--test', action='store_true', help='run test mode')
->>>>>>> b2e40ab09458984e2610e6be36574cc7029ce03e:utils/parser.py

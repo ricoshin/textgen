@@ -20,7 +20,6 @@ from train.train_helper import (load_test_data, append_pads, print_ae_sents,
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
------
 from test.evaluate_nltk import truncate, corp_bleu
 from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
                                 print_ae_sents, print_gen_sents, \
@@ -46,7 +45,6 @@ def test(net):
     # noise_anneal = 0.995(default)
     net.ae.noise_radius = net.ae.noise_radius * cfg.noise_anneal
 
------
     #print status of data that is being used
     epoch = sv.epoch_step
     nbatch = sv.batch_step

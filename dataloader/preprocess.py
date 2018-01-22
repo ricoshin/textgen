@@ -56,3 +56,4 @@ def preprocess_data_vocab(cfg):
         vocab = Vocab.unpickle(cfg.vocab_filepath)
     StopWatch.stop('Total')
     return vocab
+
