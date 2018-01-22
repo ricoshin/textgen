@@ -27,3 +27,9 @@ It is possible that bleu score implemented in this repo could be wrong.
 * Pass argument `--test` when running `main.py`
 * Full evluation additionally performs bleu-1, bleu-2, bleu-3, default nltk bleu(mixed ngram evaluation)
 * Simple evaluation performs bleu-4 and perplexity evluation.
+
+## Additional parser description
+```
+--word_act    choose activation function    softmax, sigmoid, sparsemax
+--test        run test session using trained data
+```

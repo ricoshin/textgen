@@ -39,7 +39,7 @@ def train_lm(eval_data, gen_data, vocab, save_path, n):
     #     vocabe = net.vocab)
     # input : test dataset
     #kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
-    kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
+    kenlm_path = '/home/jwy/kenlm'
     #processing
     eval_sents = [truncate(s) for s in eval_data]
     gen_sents = [truncate(s) for s in gen_data]

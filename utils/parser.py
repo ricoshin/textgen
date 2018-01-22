@@ -122,6 +122,10 @@ parser.add_argument('--word_temp', type=float, default=1e-2,
 parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 
+parser.add_argument('--word_act', type=str, default='softmax', 
+                    choices=['softmax', 'sigmoid', 'sparsemax'], 
+                    help='word attention activation function')
+
 # Test
 parser.add_argument('--test', action='store_true', help='run test mode')
 parser.add_argument('--test_log_dir', type=str, default='testlog.txt', help='output test log file')
