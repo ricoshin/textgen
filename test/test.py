@@ -6,16 +6,25 @@ import time
 import torch
 import torch.nn as nn
 
-from train_helper import TrainingSupervisor
-from utils import set_random_seed, to_gpu
 
-from autoencoder import Autoencoder
-from code_disc import CodeDiscriminator
-from evaluate import evaluate_sents
-from evaluate_nltk import truncate, corp_bleu
-from generator import Generator
-from sample_disc import SampleDiscriminator
-from train_with_kenlm import train_lm, ids_to_sent_for_eval, \
+from models.autoencoder import Autoencoder
+from models.code_disc import CodeDiscriminator
+from models.generator import Generator
+from models.sample_disc import SampleDiscriminator
+
+from test.evaluate import evaluate_sents
+from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
+                                        train_disc_c, train_disc_s)
+from train.train_helper import (load_test_data, append_pads, print_ae_sents,
+                                        print_gen_sents, ids_to_sent_for_eval,
+                                        halve_attns, print_attns)
+from train.supervisor import Supervisor
+from utils.utils import set_random_seed, to_gpu
+
+from train_helper import TrainingSupervisor
+
+from test.evaluate_nltk import truncate, corp_bleu
+from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
                                 print_ae_sents, print_gen_sents, \
                                 load_test_data
 

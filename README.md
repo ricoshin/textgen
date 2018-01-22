@@ -23,3 +23,7 @@ nltk, kenlm
 ## About NLTK Bleu
 It is possible that bleu score implemented in this repo could be wrong.
 
+## Using Test Session
+* Pass argument `--test` when running `main.py`
+* Full evluation additionally performs bleu-1, bleu-2, bleu-3, default nltk bleu(mixed ngram evaluation)
+* Simple evaluation performs bleu-4 and perplexity evluation.
