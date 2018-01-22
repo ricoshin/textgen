@@ -6,8 +6,9 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from attention import MultiLinear4D, WordAttention, LayerAttention
-from utils import to_gpu
+from nn.attention import MultiLinear4D, WordAttention, LayerAttention
+from train.train_helper import ResultPackage
+from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
@@ -83,19 +84,25 @@ class SampleDiscriminator(nn.Module):
         self.word_attns = []
         for i in range(n_conv - 1):
             word_attn = WordAttention(c_[i], w_[i], n_mat, n_attns[i],
-                                      last_act='softmax')
+                                      cfg.word_temp, last_act='softmax')
             self.word_attns.append(word_attn)
             self.add_module("WordAttention(%d)" % (i+1), word_attn)
 
         # layerwise attention layer
-        self.layer_attn = LayerAttention(n_mat, n_conv, last_act='softmax')
+        self.layer_attn = LayerAttention(n_mat, n_conv, cfg.layer_temp,
+                                         last_act='softmax')
 
-        # final fc layers
-        self.last_fc = MultiLinear4D(n_mat, 1, dim=1, n_layers=2)
+        # final fc layers for attention
+        self.last_fc_attn = MultiLinear4D(n_mat, 1, dim=1, n_layers=2)
+
+        # final fc layers for reconstruction
+        code_dim = cfg.hidden_size
+        self.last_fc_recon = MultiLinear4D(c[-1], code_dim, dim=1, n_layers=2)
 
         # dropout & binary CE
         self.dropout = nn.Dropout(cfg.dropout)
         self.criterion_bce = nn.BCELoss()
+        #self.criterion_cs = F.cosine_similarity()
 
     def generate_pad_masks(self, x):
         # [bsz, embed_size, 1, max_len]
@@ -137,22 +144,25 @@ class SampleDiscriminator(nn.Module):
             w_attn.append(attn)
 
         # stack along height dim
-        x = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
+        x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
 
         # layerwise attention
-        l_ctx, l_attn = self.layer_attn(x)
+        l_ctx, l_attn = self.layer_attn(x_a)
         # ctx : [bsz, n_mat, 1, 1]
         # attn : [bsz, 1, n_layers, 1]
         l_attn = l_attn.squeeze().permute(1,0).data.cpu().numpy()
         # [n_layers, bsz, 1]
 
-        # final fc
-        x = self.last_fc(l_ctx).squeeze() # [bsz]
-        x = F.sigmoid(x)
+        # final fc for attention
+        x_a = self.last_fc_attn(l_ctx).squeeze() # [bsz]
+        x_a = F.sigmoid(x_a)
+
+        # final fc for reconstruction
+        x = self.last_fc_recon(x)
 
         # w_attn : [n_layers, bsz, len]
         # layer_attn : [n_layers, bsz]
-        return x, [w_attn, l_attn]
+        return x, x_a, [w_attn, l_attn]
 
     def get_in_c_size(self):
         if self.cfg.disc_s_in == 'embed':
@@ -162,6 +172,7 @@ class SampleDiscriminator(nn.Module):
         else:
             raise Exception("Unknown disc input type!")
 
+    # NOTE : redundant code
     def mask_sequence_with_n_inf(self, seqs, seq_lens):
         max_seq_len = seqs.size(1)
         masks = seqs.data.new(*seqs.size()).zero_()
@@ -183,47 +194,3 @@ class SampleDiscriminator(nn.Module):
         embeddings = torch.mm(id_onehots, self.embed.weight)
         embeddings = embeddings.view(-1, max_len, embed_size)
         return embeddings
-
-    @staticmethod
-    def train_(cfg, disc, real_in, fake_in):
-        disc.train()
-        disc.zero_grad()
-
-        if cfg.disc_s_in == 'embed':
-            # real_in.size() : [batch_size, max_len]
-            # fake_in.size() : [batch_size*2, max_len, vocab_size]
-            # normal embedding lookup
-            real_in = disc.embed(real_in)
-            # soft embedding lookup (3D x 2D matrix multiplication)
-            fake_in = disc.soft_embed(fake_in)
-            # [batch_size, max_len, embed_size]
-
-            # clamp parameters to a cube
-        for p in disc.parameters():
-            p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
-            # WGAN clamp (default:0.01)
-
-        #real_in = real_in + real_in.eq(0).float() * (-1e-16)
-        #fake_in = fake_in + fake_in.eq(0).float() * (-1e-16)
-
-        pred_real, attn_real = disc(real_in.detach())
-        pred_fake, attn_fake = disc(fake_in.detach())
-
-        # loss
-        label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
-        label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
-        loss_real = disc.criterion_bce(pred_real, label_real)
-        loss_fake = disc.criterion_bce(pred_fake, label_fake)
-        loss_total = loss_real + loss_fake
-
-        # accuracy
-        real_mean = pred_real.mean()
-        fake_mean = pred_fake.mean()
-
-        # backprop.
-        loss_real.backward()
-        loss_fake.backward()
-
-        return ((loss_total.data[0], loss_real.data[0], loss_fake.data[0]),
-                (real_mean.data[0], fake_mean.data[0]),
-                (attn_real, attn_fake))

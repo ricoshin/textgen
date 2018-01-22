@@ -1,13 +1,13 @@
 import logging
 import os
 
-from book_corpus import BookCorpusDataset
-from parser import parser
-from preprocess import preprocess_data_vocab
-from train import train
-from test import test
-from train_helper import Network
-from utils import Config, set_logger, prepare_paths
+from dataloader.book_corpus import BookCorpusDataset
+from dataloader.preprocess import preprocess_data_vocab
+from test.test import test
+from train.train import train
+from train.network import Network
+from utils.parser import parser
+from utils.utils import Config, set_logger, prepare_paths
 
 
 log = logging.getLogger('main')
@@ -40,9 +40,4 @@ if __name__ == '__main__':
     else:
         test(net)
 
-    #trainer = Trainer(cfg=cfg, vocab=vocab, data_loader=data_loader)
-    import ipdb; ipdb.set_trace()
-    ddd = batchify(data_loader)
-    iter(data_loader).__next__()
-    log.info('prepare_data_and_vocab')
-# main.py --test
+    log.info('End of program.')
