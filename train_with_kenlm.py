@@ -53,6 +53,9 @@ def train_lm(eval_data, gen_data, vocab, save_path, n):
                         data_path=save_path+".txt",
                         output_path=save_path+".arpa",
                         N=n)
+    # empty or too small .arpa file
+    if lm == None:
+        return 2147483647 # assign biggest value
     # evaluate
     ppl = get_ppl(lm, eval_sents)
     return ppl
@@ -220,7 +223,7 @@ def print_attns(cfg, vocab, real_ids, fake_ids, real_attns, fake_attns):
 
 def load_test_data(cfg):
     test_sents = []
-    with open(os.path.join(cfg.data_dir, 'test.txt')) as f:
+    with open(cfg.test_filepath) as f:
         for line in f:
             test_sents.append(line.strip())
     return test_sents
@@ -345,7 +348,7 @@ def train(net):
 
             ### added by JWY
             if sv.batch_step % (2*cfg.log_interval) == 0:
-                bleu = corp_bleu(references=test_sents,
+                bleu = corp_bleu(references=test_sents[:(len(fake_sents)*10)],
                         hypotheses=fake_sents, gram=4)
                 log.info('nltk bleu-{}: {}'.format(4, bleu))
                 ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,

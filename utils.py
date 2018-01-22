@@ -107,11 +107,12 @@ def prepare_paths(cfg):
     if cfg.data_name == "books":
         if cfg.small:
             cfg.prepro_dir += "_small"
-            cfg.train_filepath = "books_100k.txt"
-            cfg.test_filepath = None
+            cfg.train_filepath = os.path.join(cfg.data_dir, "books_100k.txt")
+            cfg.test_filepath = os.path.join(cfg.data_dir, "books_10_20_random_10k.txt")
         else:
-            cfg.train_filepath = ["books_large_p1.txt", "books_large_p2.txt"]
-            cfg.test_filepath = None
+            cfg.train_filepath = [os.path.join(cfg.data_dir, "books_large_p1.txt"), 
+                    os.path.join(cfg.data_dir, "books_large_p2.txt")]
+            cfg.test_filepath = os.path.join(cfg.data_dir, "books_1500k_random.txt")
 
     elif cfg.data_name == "snli":
         if cfg.small:

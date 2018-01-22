@@ -69,7 +69,7 @@ class WordAttention(nn.Module):
         for attn_layer in self.attn_layers:
             score = attn_layer(x) # [bsz, 1, 1, w]
             if self.last_act == 'softmax':
-                weight = F.softmax((score+mask)/cfg.word_temp, dim=3) # same
+                weight = F.softmax((score+mask)/1e-2, dim=3) # same
             elif self.last_act == 'sigmoid':
                 weight = F.sigmoid(score+mask) # same
             elif self.last_act == 'sparsemax':
@@ -95,7 +95,7 @@ class WordAttention(nn.Module):
         return x, weight
 
 class LayerAttention(nn.Module):
-    def __init__(self, in_chann, n_layers, last_act='softmax'):
+    def __init__(self, in_chann, n_layers, last_act='sigmoid'):
         super(LayerAttention, self).__init__()
         # in : [bsz, n_mat, n_layers, 1]
         assert(last_act in ['sigmoid', 'softmax', 'sparsemax'])
@@ -109,7 +109,7 @@ class LayerAttention(nn.Module):
         # layerwise attention layers
         score = self.attn_layer(x) # [bsz, 1, n_layers, 1]
         if self.last_act == 'softmax':
-            weight = F.softmax(score/cfg.layer_temp, dim=2) # same
+            weight = F.softmax(score/1e-2, dim=2) # same
         elif self.last_act == 'sigmoid':
             weight = F.sigmoid(score) # same
         elif self.last_act == 'sparsemax':
