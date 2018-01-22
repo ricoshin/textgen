@@ -2,6 +2,7 @@ import logging
 import numpy as np
 import os
 import time
+from datetime import datetime
 
 import torch
 import torch.nn as nn
@@ -18,7 +19,7 @@ from train.train_helper import (load_test_data, append_pads, print_ae_sents,
                                 print_gen_sents, ids_to_sent_for_eval,
                                 halve_attns, print_attns)
 from train.supervisor import Supervisor
-from utils.utils import set_random_seed, to_gpu
+from utils.utils import set_random_seed, to_gpu, set_logger
 
 from test.evaluate_nltk import truncate, corp_bleu
 from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
@@ -26,18 +27,16 @@ from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
                                 load_test_data
 
 
-log = logging.getLogger('main')
-
 def test(net):
-    log = logging.getLogger('main')
+    cfg = net.cfg # for brevity
     cfg.log_filepath = os.path.join(cfg.log_dir, "testlog.txt")
     #cfg, logger_name = 'main', filepath = cfg.log_filepath
+    log = logging.getLogger('main')
     set_logger(cfg=cfg)
     log.info("test session {}".format(datetime.now()))
-    cfg = net.cfg # for brevity
     sv = Supervisor(net)
     set_random_seed(cfg)
-    fixed_noise = fixed_noise = net.gen.make_noise_(cfg, cfg.eval_size) # for generator
+    fixed_noise = net.gen.make_noise(cfg, cfg.eval_size) # for generator
     test_sents = load_test_data(cfg)
 
     # exponentially decaying noise on autoencoder
@@ -62,8 +61,8 @@ def test(net):
         batch = net.data_eval.next()
         tars, outs = eval_ae(cfg, net.ae, batch)
         # dump results
-        print("drop log and events")
-        rp_ae.drop_log_and_events(sv, writer)
+        #print("drop log and events")      
+        #rp_ae.drop_log_and_events(sv, writer)
         print("print ae sents")
         print_ae_sents(net.vocab, tars, outs, batch.len, ae_num)
 
@@ -78,16 +77,16 @@ def test(net):
             break
         # dump results
         print("drop log and events")
-        rp_dc.drop_log_and_events(sv, writer, False)
+        #rp_dc.drop_log_and_events(sv, writer, False)
         print("print gen sents")
         print_gen_sents(net.vocab, ids_fake_eval, gen_num)
 
         # Discriminator_s
         if cfg.with_attn:
-            rp_ds_l_gan.drop_log_and_events(sv, writer)
-            rp_ds_l_rec.drop_log_and_events(sv, writer, False)
+            #rp_ds_l_gan.drop_log_and_events(sv, writer)
+            #rp_ds_l_rec.drop_log_and_events(sv, writer, False)
 
-            rp_ds_pred.drop_log_and_events(sv, writer, False)
+            #rp_ds_pred.drop_log_and_events(sv, writer, False)
 
             a_real, a_fake = attns
             ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
@@ -102,7 +101,7 @@ def test(net):
         #choose range of evaluation
         eval_setting = input("Do you want to perform full evaluation?(y/n):")
         rp_scores = evaluate_sents(test_sents, fake_sents)
-        rp_scores.drop_log_and_events(sv, writer, False)
+        #rp_scores.drop_log_and_events(sv, writer, False)
 
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
             bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)

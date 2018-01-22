@@ -157,7 +157,9 @@ def train(net):
             batch = net.data_eval.next()
             tars, outs = eval_ae(cfg, net.ae, batch)
             # dump results
+            print('drop log and events AE')
             rp_ae.drop_log_and_events(sv, writer)
+            print('print ae sents')
             print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
             # Generator + Discriminator_c
@@ -166,7 +168,9 @@ def train(net):
                                                   net.vocab, False)
             # dump results
             rp_dc.update(dict(G=rp_gen.loss))
+            print('drop log and events DC')
             rp_dc.drop_log_and_events(sv, writer, False)
+            print('print gen sents')
             print_gen_sents(net.vocab, ids_fake_eval, cfg.log_nsample)
 
             # Discriminator_s
