@@ -2,9 +2,9 @@ import numpy as np
 import logging
 import os
 
-from utils import StopWatch
-from vocab import Vocab, GloveMultiProcessor
-from book_corpus import BookCorpusMultiProcessor
+from dataloader.book_corpus import BookCorpusMultiProcessor
+from dataloader.vocab import Vocab, GloveMultiProcessor
+from utils.utils import StopWatch
 
 log = logging.getLogger('main')
 

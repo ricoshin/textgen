@@ -2,7 +2,8 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from utils import to_gpu
+from train.train_helper import ResultPackage
+from utils.utils import to_gpu
 
 
 class Generator(nn.Module):
@@ -12,7 +13,7 @@ class Generator(nn.Module):
         # arguments default values
         #   ninput: args.z_size=100
         #   noutput: args.nhidden=300
-        #   layers: arch_d: 300-300
+        #   layers: arch_d: 300-300 
 
         # z_size(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- nhidden(out)
         self.ninput = ninput
@@ -42,7 +43,7 @@ class Generator(nn.Module):
         #self.add_module("layer"+str(len(self.layers)), layer)
         self.add_module("layer"+str(len(layer_sizes)), layer) # bug fix
 
-        # MLP_G(
+        # Generator(
         #     (layer1): Linear(in_features=z_size, out_features=300)
         #     (bn1): BatchNorm1d(300, eps=1e-05, momentum=0.1, affine=True)
         #     (activation1): ReLU()
@@ -69,8 +70,7 @@ class Generator(nn.Module):
             except:
                 pass
 
-    @staticmethod
-    def make_noise_(cfg, num_samples=None):
+    def make_noise(self, cfg, num_samples=None):
         if num_samples is None:
             num_samples = cfg.batch_size
         noise = Variable(torch.ones(num_samples, cfg.z_size))
@@ -78,29 +78,12 @@ class Generator(nn.Module):
         noise.data.normal_(0, 1)
         return noise
 
-    @staticmethod
-    def generate_(cfg, gen, noise=None, train=True):
+    def generate(self, cfg, noise=None, train=True):
         if train:
-            gen.train()
-            gen.zero_grad()
+            self.train()
+            self.zero_grad()
         else:
-            gen.eval()
+            self.eval()
         if noise is None:
-            noise = Generator.make_noise_(cfg)
-        return gen(noise)
-
-    @staticmethod
-    def train_(cfg, gen, ae, disc_c):
-        gen.train()
-        gen.zero_grad()
-
-        noise = Generator.make_noise_(cfg)
-        fake_code = gen(noise)
-        err_g = disc_c(fake_code)
-
-        # loss / backprop
-        one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-        err_g.backward(one)
-
-        err_g = err_g.data[0]
-        return err_g, fake_code
+            noise = self.make_noise(cfg)
+        return self(noise)
