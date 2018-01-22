@@ -192,16 +192,16 @@ def train(net):
 
             ### added by JWY
             if sv.batch_step % (2*cfg.log_interval) == 0:
-                bleu = corp_bleu(references=test_sents[:max(len(fake_sents)*50, len(test_sents))],
+                bleu = corp_bleu(references=test_sents[:min(len(fake_sents)*50, len(test_sents))],
                     hypotheses=fake_sents, gram=4)
                 log.info('nltk bleu-{}: {}'.format(4, bleu))
                 ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
                     vocab = net.vocab,
-                    save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
+                    save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, sv.batch_step),
                     n = cfg.N)
                 log.info("Perplexity {}".format(ppl))
-                writer.add_scalar('Eval/5_nltk_Bleu', bleu, niter)
-                writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, niter)
+                writer.add_scalar('Eval/5_nltk_Bleu', bleu, sv.global_step)
+                writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, sv.global_step)
             ### end
             sv.save()
 
