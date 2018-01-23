@@ -18,11 +18,14 @@ Below codes utilize nltk tools
 
 """
 bleu score metric
+method3 is used for smoothing
 """
+# This function doesn't remove articles, since articles may affect bleu score
 def truncate(sent):
     def remove_punc(text):
         exclude = set(string.punctuation)
         return ''.join(ch for ch in text if ch not in exclude)
+
     def remove_token(text):
         text = text.replace('<eos>', '')
         while text.find('<unk>') != -1:
@@ -32,11 +35,13 @@ def truncate(sent):
 
     def lower(text):
         return text.lower()
+
     return remove_punc(remove_token(lower(sent))).split()
 
-#hypotheses : ["sentence", "sentence", ...]
-#references : [["sentence", "sentence", ...], ["sent", "sent", ...], ...]
-#gram : 0=(default. cumulative n-gram score), 1~len(hyp[0])=(score with specified number of grams)
+# hypotheses : ["sentence", "sentence", ...]
+# references : ["sentence", "sentence", ...]
+# gram : 0=(default. cumulative n-gram score), 1~len(hyp[0])=(score with specified number of grams)
+# isSmooth : to perform smoothing, pass True.
 def corp_bleu(references, hypotheses, gram=0, isSmooth=False):
     ref = [truncate(s) for s in references]
     hyp = [truncate(s) for s in hypotheses]
@@ -45,20 +50,17 @@ def corp_bleu(references, hypotheses, gram=0, isSmooth=False):
         print('number of gram exceeds the length of sentence')
         return 0
 
+    smooth = SmoothingFunction().method0 # method0 is default in nltk
     if isSmooth == True:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] = 1
-            return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
-        else:
-            return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
+        smooth = SmoothingFunction().method3
+
+    if gram != 0:
+        w = [0]*4
+        w[gram-1] = 1
+        # reference : [["sent", "sent", ...], ["sent", "sent", ...], ...]
+        return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False, smoothing_function=smooth)
     else:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] =1
-            return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False)
-        else:
-            return corpus_bleu([ref]*len(hyp), hyp)
+        return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=smooth)
 
 #input : ["sentence"]
 #This is early version, so it has few functionalities
@@ -79,20 +81,18 @@ def corp_to_sent_bleu(reference, hypothesis, gram=0, isSmooth=False):
         print('number of gram exceeds the length of sentence')
         return 0
 
+    smooth = SmoothingFunction().method0 # method0 is default in nltk
     if isSmooth == True:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] = 1
-            return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
-        else:
-            return sentence_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
+        smooth = SmoothingFunction().method3
+
+    if gram != 0:
+        w = [0]*4
+        w[gram-1] = 1
+        # reference : ["sent", "sent", ...]
+        return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False, smoothing_function=smooth)
     else:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] = 1
-            return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False)
-        else:
-            return sentence_bleu(ref, hyp)
+        return sentence_bleu(ref, hyp, smoothing_function=smooth)
+
 
 """
 Below codes are originally from TextVAE, multiwords branch, evaluate.py

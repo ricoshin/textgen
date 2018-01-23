@@ -26,10 +26,15 @@ from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
                                 print_ae_sents, print_gen_sents, \
                                 load_test_data
 
-
+"""
+This function is for test session.
+In test session, training is not performed.
+To enter test session, append '--test' arg when running main file.
+Test session assumes trained data, and user should provide the trained data directory via --name arg. ex:'--name train_data_name'
+"""
 def test(net):
     cfg = net.cfg # for brevity
-    cfg.log_filepath = os.path.join(cfg.log_dir, "testlog.txt")
+    cfg.log_filepath = os.path.join(cfg.log_dir, "testlog.txt") # set output log file path
     #cfg, logger_name = 'main', filepath = cfg.log_filepath
     log = logging.getLogger('main')
     set_logger(cfg=cfg)
@@ -48,22 +53,19 @@ def test(net):
     epoch = sv.epoch_step
     nbatch = sv.batch_step
     niter = sv.global_step
-    print('epoch {}, nbatch {}, niter {}. \033[1;34m'.format(epoch, nbatch, niter))
+    print('epoch {}, nbatch {}, niter {}. \033[1;34m'.format(epoch, nbatch, niter)) # add color
 
     # test session
     while 1:
         # get the number of output sentence from AE
         print('default sample num:', cfg.log_nsample)
-        ae_num = int(input("enter the number of AE sample(quit:0):"))
+        ae_num = int(input("enter the number of AE sample(quit:0):")) # to quit test session, enter 0
         if ae_num == 0:
             break
         # Autoencoder
         batch = net.data_eval.next()
         tars, outs = eval_ae(cfg, net.ae, batch)
         # dump results
-        #print("drop log and events")      
-        #rp_ae.drop_log_and_events(sv, writer)
-        print("print ae sents")
         print_ae_sents(net.vocab, tars, outs, batch.len, ae_num)
 
         # Generator + Discriminator_c
@@ -76,18 +78,10 @@ def test(net):
         if gen_num == 0:
             break
         # dump results
-        print("drop log and events")
-        #rp_dc.drop_log_and_events(sv, writer, False)
-        print("print gen sents")
         print_gen_sents(net.vocab, ids_fake_eval, gen_num)
 
         # Discriminator_s
         if cfg.with_attn:
-            #rp_ds_l_gan.drop_log_and_events(sv, writer)
-            #rp_ds_l_rec.drop_log_and_events(sv, writer, False)
-
-            #rp_ds_pred.drop_log_and_events(sv, writer, False)
-
             a_real, a_fake = attns
             ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
             a_fake_r, a_fake_f = halve_attns(a_fake)
@@ -101,7 +95,6 @@ def test(net):
         #choose range of evaluation
         eval_setting = input("Do you want to perform full evaluation?(y/n):")
         rp_scores = evaluate_sents(test_sents, fake_sents)
-        #rp_scores.drop_log_and_events(sv, writer, False)
 
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
             bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)
@@ -117,10 +110,10 @@ def test(net):
         bleu4 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=4)
         ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
             vocab = net.vocab,
-            save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter),
+            save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter), # .arpa file path
             n = cfg.N)
         log.info('Eval/bleu-4'+str(bleu4))
         log.info('Eval/6_Reverse_Perplexity'+str(ppl))
         ### end
     # end test session
-    print('exit test' + '\033[0;0m')
+    print('exit test' + '\033[0;0m') # reset color

@@ -32,11 +32,13 @@ codes originally from ARAE : https://github.com/jakezhaojb/ARAE
 some parts are modified
 """
 from utils.utils_kenlm import train_ngram_lm, get_ppl
-
+# save_path : save path of .arpa and .txt file
+# N : N-gram language model. default 5.
 def train_lm(eval_data, gen_data, vocab, save_path, n):
-    # ppl = train_lm(eval_data=test_sents, gen_data = fake_sent,
-    #     save_path = "output/niter{}_lm_generation".format(niter)
-    #     vocabe = net.vocab)
+        #ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
+        #    vocab = net.vocab,
+        #    save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, sv.batch_step),
+        #    n = cfg.N)
     # input : test dataset
     #kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
     kenlm_path = '/home/jwy/kenlm'
@@ -157,9 +159,7 @@ def train(net):
             batch = net.data_eval.next()
             tars, outs = eval_ae(cfg, net.ae, batch)
             # dump results
-            print('drop log and events AE')
             rp_ae.drop_log_and_events(sv, writer)
-            print('print ae sents')
             print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
             # Generator + Discriminator_c
@@ -168,9 +168,7 @@ def train(net):
                                                   net.vocab, False)
             # dump results
             rp_dc.update(dict(G=rp_gen.loss))
-            print('drop log and events DC')
             rp_dc.drop_log_and_events(sv, writer, False)
-            print('print gen sents')
             print_gen_sents(net.vocab, ids_fake_eval, cfg.log_nsample)
 
             # Discriminator_s
