@@ -7,20 +7,20 @@ from utils.utils import to_gpu
 
 
 class Generator(nn.Module):
-    def __init__(self, ninput, noutput, layers,
-                 activation=nn.ReLU(), gpu=False):
+    def __init__(self, cfg):
         super(Generator, self).__init__()
         # arguments default values
         #   ninput: args.z_size=100
         #   noutput: args.nhidden=300
-        #   layers: arch_d: 300-300 
+        #   layers: arch_d: 300-300
 
         # z_size(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- nhidden(out)
-        self.ninput = ninput
-        self.noutput = noutput
-        self.gpu = gpu
+        self.cfg = cfg
+        ninput = cfg.z_size
+        noutput = cfg.hidden_size
 
-        layer_sizes = [ninput] + [int(x) for x in layers.split('-')]
+        activation = nn.ReLU()
+        layer_sizes = [ninput] + [int(x) for x in cfg.arch_g.split('-')]
         self.layers = []
 
         # add_module here is required to define each layer with different name
@@ -53,14 +53,21 @@ class Generator(nn.Module):
         #     (layer3): Linear(in_features=300, out_features=nhidden)
         # )
 
-        self.init_weights()
+        self._init_weights()
 
-    def forward(self, x):
+    def forward(self, z=None, train=False):
+        self._check_train(train)
+
+        if z is None:
+            x = self.make_noise()
+        else:
+            x = z
+
         for i, layer in enumerate(self.layers):
             x = layer(x)
         return x
 
-    def init_weights(self):
+    def _init_weights(self):
         # Initialization with Gaussian distribution: N(0, 0.02)
         init_std = 0.02
         for layer in self.layers:
@@ -70,20 +77,17 @@ class Generator(nn.Module):
             except:
                 pass
 
-    def make_noise(self, cfg, num_samples=None):
-        if num_samples is None:
-            num_samples = cfg.batch_size
-        noise = Variable(torch.ones(num_samples, cfg.z_size))
-        noise = to_gpu(cfg.cuda, noise)
-        noise.data.normal_(0, 1)
-        return noise
-
-    def generate(self, cfg, noise=None, train=True):
+    def _check_train(self, train):
         if train:
             self.train()
             self.zero_grad()
         else:
             self.eval()
-        if noise is None:
-            noise = self.make_noise(cfg)
-        return self(noise)
+
+    def make_noise(self, num_samples=None):
+        if num_samples is None:
+            num_samples = self.cfg.batch_size
+        noise = Variable(torch.ones(num_samples, self.cfg.z_size))
+        noise = to_gpu(self.cfg.cuda, noise)
+        noise.data.normal_(0, 1)
+        return noise

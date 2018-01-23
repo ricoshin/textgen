@@ -110,7 +110,7 @@ class Autoencoder(nn.Module):
             #log.debug("Encoder gradient norm has been saved.")
 
         decoded = self._decode(hidden, batch_size, maxlen,
-                              indices=indices, lengths=lengths)
+                               indices=indices, lengths=lengths)
 
         return decoded
 

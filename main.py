@@ -1,8 +1,8 @@
 import logging
 import os
 
-from dataloader.book_corpus import BookCorpusDataset
-from dataloader.preprocess import preprocess_data_vocab
+from loader.book_corpus import BookCorpusDataset
+from loader.preprocess import preprocess_data_vocab
 from test.test import test
 from train.train import train
 from train.network import Network

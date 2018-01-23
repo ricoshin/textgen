@@ -1,4 +1,5 @@
 import math
+import collections
 
 import torch
 import torch.nn as nn
@@ -8,13 +9,14 @@ import torch.nn.functional as F
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
+dict = collections.OrderedDict
 
-def train_ae(cfg, ae, batch):
-    ae.train()
-    ae.zero_grad()
 
+def train_ae(cfg, net, batch, optimize=True):
+    # forward
+    code = net.enc(batch.src, batch.len, ae_mode=True, train=True)
+    output = net.dec(code, batch.src, batch.len, ae_mode=True, train=True)
     # output.size(): batch_size x max_len x ntokens (logits)
-    output = ae(batch.src, batch.len, noise=True)
 
     def mask_output_target(output, target, ntokens):
         # Create sentence length mask over padding
@@ -34,25 +36,35 @@ def train_ae(cfg, ae, batch):
         # masked_target : num_of_masked_words
         return masked_output, masked_target
 
+    # loss & accuracy
     masked_output, masked_target = \
         mask_output_target(output, batch.tar, cfg.vocab_size)
 
     max_vals, max_indices = torch.max(masked_output, 1)
     accuracy = torch.mean(max_indices.eq(masked_target).float())
+    loss = net.dec.criterion_ce(masked_output, masked_target)
 
-    loss = ae.criterion_ce(masked_output, masked_target)
+    # backward
+    loss.backward(retain_graph=(not optimize))
 
-    loss.backward()
-    # `clip_grad_norm` to prevent exploding gradient in RNNs / LSTMs
-    torch.nn.utils.clip_grad_norm(ae.parameters(), cfg.clip)
+    # gradient clipping
+    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
+    torch.nn.utils.clip_grad_norm(net.dec.parameters(), cfg.clip)
+
+    # optimize
+    if optimize:
+        net.optim_enc.step()
+        net.optim_dec.step()
+
     return ResultPackage("Autoencoder",
                          dict(Loss=loss.data, Accuracy=accuracy.data[0]))
 
 
-def eval_ae(cfg, ae, batch):
-    ae.eval()
+def eval_ae(cfg, net, batch):
+    # forward
+    code = net.enc(batch.src, batch.len, ae_mode=True, train=False)
+    output = net.dec(code, batch.src, batch.len, ae_mode=True, train=False)
     # output.size(): batch_size x max_len x ntokens (logits)
-    output = ae(batch.src, batch.len, noise=True)
 
     max_value, max_indices = torch.max(output, 2)
     target = batch.tar.view(output.size(0), -1)
@@ -62,19 +74,13 @@ def eval_ae(cfg, ae, batch):
     return targets, outputs
 
 
-def train_dec(cfg, ae, disc_s, fake_code, vocab):
-    ae.train()
-    ae.zero_grad()
-
-    fake_ids, fake_outs = ae.decode_only(cfg, fake_code, vocab)
+def train_dec(cfg, net, fake_code, optimize=True):
+    # forward
+    fake_ids, fake_outs = net.dec(fake_code, train=True)
     # fake_outs.size() : [batch_size*2, max_len, vocab_size]
+    _, pred_fake, attn_fake = net.disc_s(fake_outs, train=False)
 
-    if cfg.disc_s_in == 'embed':
-        # fake_in.size() : [batch_size*2, max_len, vocab_size]
-        # soft embedding lookup (3D x 2D matrix multiplication)
-        fake_outs = disc_s.soft_embed(fake_outs)
-        # [batch_size, max_len, embed_size]
-
+    # register hook on logits of decoder
     def grad_hook(grad):
         if cfg.ae_grad_norm:
             gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
@@ -83,55 +89,58 @@ def train_dec(cfg, ae, disc_s, fake_code, vocab):
                 import ipdb; ipdb.set_trace()
                 normed_grad = grad
             else:
-                normed_grad = grad * ae.dec_grad_norm / gan_norm
+                normed_grad = grad * net.dec.grad_norm / gan_norm
         else:
             normed_grad = grad
 
-        normed_grad *= math.fabs(cfg.gan_toenc)
+        normed_grad *= math.fabs(cfg.gan_to_ae)
         return normed_grad
 
-    fake_outs.register_hook(grad_hook)
+    net.dec.logits.register_hook(grad_hook)
 
     # loss
-    _, pred_fake, attn_fake = disc_s(fake_outs)
     label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_fake.size())))
-    loss = disc_s.criterion_bce(pred_fake, label_real)
+    loss = net.disc_s.criterion_bce(pred_fake, label_real)
 
     # pred average
     mean = pred_fake.mean()
 
-    # backprop.
-    loss.backward()
+    # backward
+    loss.backward(retain_graph=(not optimize))
+
+    # optimize
+    if optimize:
+        net.optim_dec.step()
 
     return ResultPackage("Decoder_Loss",
                          dict(loss=loss.data[0], pred=mean.data[0]))
 
 
-def train_gen(cfg, gen, ae, disc_c):
-    gen.train()
-    gen.zero_grad()
+def train_gen(cfg, net, optimize=True):
+    # forward
+    fake_code = net.gen(train=True)
+    err_g = net.disc_c(fake_code, train=False)
 
-    noise = gen.make_noise(cfg)
-    fake_code = gen(noise)
-    err_g = disc_c(fake_code)
-
-    # loss / backprop
+    # backward
     one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-    err_g.backward(one)
+    err_g.backward(one, retain_graph=(not optimize))
 
+    # optimize
+    if optimize:
+        net.optim_gen.step()
+
+    # result
     result = ResultPackage("Generator_Loss", dict(loss=err_g.data[0]))
 
     return result, fake_code
 
 
-def train_disc_c(cfg, disc, ae, real_hidden, fake_hidden):
-        # clamp parameters to a cube
-    for p in disc.parameters():
+def train_disc_c(cfg, net, code_real, code_fake, optimize=True):
+    # NOTE : encoder will be trained adversarially with disc_c
+    # clamp parameters to a cube
+    for p in net.disc_c.parameters():
         p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
         # WGAN clamp (default:0.01)
-
-    disc.train()
-    disc.zero_grad()
 
     # positive samples ----------------------------
     def grad_hook(grad):
@@ -147,33 +156,36 @@ def train_disc_c(cfg, disc, ae, real_hidden, fake_hidden):
                 import ipdb; ipdb.set_trace()
                 normed_grad = grad
             else:
-                normed_grad = grad * ae.enc_grad_norm / gan_norm
+                normed_grad = grad * net.enc.grad_norm / gan_norm
             # grad : gradient from GAN
             # aeoder.grad_norm : norm(gradient from AE)
             # gan_norm : norm(gradient from GAN)
         else:
             normed_grad = grad
 
-        # weight factor and sign flip
-        normed_grad *= -math.fabs(cfg.gan_toenc)
+        # weight factor and sign flip (adversarial training)
+        normed_grad *= -math.fabs(cfg.gan_to_ae)
 
         return normed_grad
 
-    real_hidden.register_hook(grad_hook) # normed_grad
-    # loss / backprop
-    err_d_real = disc(real_hidden)
-    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-    err_d_real.backward(one)
+    code_real.register_hook(grad_hook) # normed_grad
 
-    # negative samples ----------------------------
-    # loss / backprop
-    err_d_fake = disc(fake_hidden.detach())
-    err_d_fake.backward(one * -1)
-
-    # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs
-    torch.nn.utils.clip_grad_norm(ae.parameters(), cfg.clip)
-
+    # forward
+    err_d_real = net.disc_c(code_real, train=True) # NOTE:train encoder as well
+    err_d_fake = net.disc_c(code_fake.detach(), train=True) # NOTE:dectach gen
     err_d = -(err_d_real - err_d_fake)
+
+    # backward
+    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
+    err_d_real.backward(one, retain_graph=(not optimize))
+    err_d_fake.backward((-1*one), retain_graph=(not optimize))
+
+    # clip encoder's gradient
+    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
+    # optimize
+    if optimize:
+        net.optim_enc.step()
+        net.optim_disc_c.step()
 
     return ResultPackage("Code_GAN_Loss",
                          dict(D_Total=err_d.data[0],
@@ -181,35 +193,22 @@ def train_disc_c(cfg, disc, ae, real_hidden, fake_hidden):
                               D_Fake=err_d_fake.data[0]))
 
 
-def train_disc_s(cfg, disc, in_real, in_fake, code_real, code_fake):
-    disc.train()
-    disc.zero_grad()
-
-    if cfg.disc_s_in == 'embed':
-        # in_real.size() : [batch_size, max_len]
-        # in_fake.size() : [batch_size*2, max_len, vocab_size]
-        # normal embedding lookup
-        in_real = disc.embed(in_real)
-        # soft embedding lookup (3D x 2D matrix multiplication)
-        in_fake = disc.soft_embed(in_fake)
-        # [batch_size, max_len, embed_size]
-
-        # clamp parameters to a cube
-    for p in disc.parameters():
+def train_disc_s(cfg, net, in_real, in_fake, code_real, code_fake,
+                 optimize=True):
+    # clamp parameters to a cube
+    for p in net.disc_s.parameters():
         p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
         # WGAN clamp (default:0.01)
 
-    #in_real = in_real + in_real.eq(0).float() * (-1e-16)
-    #in_fake = in_fake + in_fake.eq(0).float() * (-1e-16)
-
-    rec_real, pred_real, attn_real = disc(in_real.detach())
-    rec_fake, pred_fake, attn_fake = disc(in_fake.detach())
+    # forward
+    rec_real, pred_real, attn_real = net.disc_s(in_real.detach(), train=True)
+    rec_fake, pred_fake, attn_fake = net.disc_s(in_fake.detach(), train=True)
 
     # attention loss
     label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
     label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
-    l_gan_real = disc.criterion_bce(pred_real, label_real)
-    l_gan_fake = disc.criterion_bce(pred_fake, label_fake)
+    l_gan_real = net.disc_s.criterion_bce(pred_real, label_real)
+    l_gan_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
 
     # reconstruction loss
     l_rec_real = F.cosine_similarity(rec_real.squeeze(), code_real.detach())
@@ -226,12 +225,17 @@ def train_disc_s(cfg, disc, in_real, in_fake, code_real, code_fake):
     real_mean = pred_real.mean()
     fake_mean = pred_fake.mean()
 
-    # backprop.
+    # backward
     l_real = l_gan_real + l_rec_real
     l_fake = l_gan_fake + l_rec_fake
-    l_real.backward()
-    l_fake.backward()
+    l_real.backward(retain_graph=(not optimize))
+    l_fake.backward(retain_graph=(not optimize))
 
+    # optimize
+    if optimize:
+        net.optim_disc_s.step()
+
+    # results
     loss_gan = ResultPackage("Sample_GAN_loss",
                              dict(D_Total=l_gan_total,
                                   D_Real=l_gan_real,
