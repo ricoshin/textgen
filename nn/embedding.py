@@ -33,7 +33,7 @@ class WordEmbedding(nn.Module):
             assert(len(indices.size()) == 2)
             return self.embed(indices)
         else:
-            # indices : [baz, max_len, vocab_size]
+            # indices : [bsz, max_len, vocab_size]
             assert(len(indices.size()) == 3)
             assert(indices.size(1) == self.cfg.max_len+1)
             assert(indices.size(2) == self.cfg.vocab_size)

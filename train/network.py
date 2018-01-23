@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 from loader.book_corpus import BatchingDataset, BatchIterator
 #from models.autoencoder import Autoencoder
 from models.encoder import EncoderRNN
+from models.enc_disc import EncoderDiscriminator
 from models.decoder import DecoderRNN
 from models.disc_code import CodeDiscriminator
 from models.generator import Generator
@@ -37,7 +38,10 @@ class Network(object):
         # self.ae = Autoencoder(cfg, vocab.embed_mat)
 
         # Encoder
-        self.enc = EncoderRNN(cfg, vocab)
+        if cfg.enc_disc_share:
+            self.enc = EncoderRNN(cfg, vocab)
+        else:
+            self.enc = SampleDiscriminator(cfg, vocab)
         # Decoder
         self.dec = DecoderRNN(cfg, vocab)
         # Generator

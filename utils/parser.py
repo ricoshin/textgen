@@ -28,7 +28,7 @@ parser.add_argument('--name', type=str, required=True)
 
 parser.add_argument('--min_len', type=int, default=10,
                     help='minimum sentence length')
-parser.add_argument('--max_len', type=int, default=20,
+parser.add_argument('--max_len', type=int, default=30,
                     help='maximum sentence length')
 #parser.add_argument('--lowercase', action='store_true',
 #                    help='lowercase all text')
@@ -75,6 +75,8 @@ parser.add_argument('--with_attn', type=str2bool, default=True,
 parser.add_argument('--disc_s_in', type=str, default='embed',
                     choices=['embed', 'hidden', 'both'],
                     help='disc_s input type')
+parser.add_argument('--enc_disc_s', type=str2bool, default=True,
+                    help='encoder and disc_s weight sharing')
 
 # Training Arguments
 parser.add_argument('--epochs', type=int, default=15,
