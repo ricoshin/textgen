@@ -58,7 +58,7 @@ class Config(object):
         return self.__dict__.__repr__()
 
 
-def set_logger(cfg):
+def set_logger(cfg, name = 'main'):
     #log_fmt = '%(asctime)s %(levelname)s %(message)s'
     #date_fmt = '%d/%m/%Y %H:%M:%S'
     #formatter = logging.Formatter(log_fmt, datefmt=date_fmt)
@@ -87,7 +87,7 @@ def set_logger(cfg):
     stream_handler.setLevel(log_level)
 
     # get logger
-    logger = logging.getLogger('main')
+    logger = logging.getLogger(name)
     logger.setLevel(log_level)
 
     # add file & stdio handler to logger

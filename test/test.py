@@ -26,6 +26,7 @@ from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
                                 print_ae_sents, print_gen_sents, \
                                 load_test_data
 
+from test.bleu_variation import leakgan_bleu, urop_bleu
 """
 This function is for test session.
 In test session, training is not performed.
@@ -36,9 +37,9 @@ def test(net):
     cfg = net.cfg # for brevity
     cfg.log_filepath = os.path.join(cfg.log_dir, "testlog.txt") # set output log file path
     #cfg, logger_name = 'main', filepath = cfg.log_filepath
-    log = logging.getLogger('main')
-    set_logger(cfg=cfg)
-    log.info("test session {}".format(datetime.now()))
+    testlog = logging.getLogger('test')
+    set_logger(cfg=cfg, name='test')
+    testlog.info("test session {}".format(datetime.now()))
     sv = Supervisor(net)
     set_random_seed(cfg)
     fixed_noise = net.gen.make_noise(cfg, cfg.eval_size) # for generator
@@ -54,6 +55,14 @@ def test(net):
     nbatch = sv.batch_step
     niter = sv.global_step
     print('epoch {}, nbatch {}, niter {}. \033[1;34m'.format(epoch, nbatch, niter)) # add color
+    
+    # get the number of batch size(num_samples)
+    print('default batch size:', cfg.batch_size)
+    batch_size = int(input("enter batch size(quit:0):")) # to quit test session, enter 0
+    if batch_size ==0:
+        return None
+    net.cfg.batch_size = batch_size
+    cfg.batch_size = batch_size
 
     # test session
     while 1:
@@ -81,6 +90,7 @@ def test(net):
         print_gen_sents(net.vocab, ids_fake_eval, gen_num)
 
         # Discriminator_s
+        """
         if cfg.with_attn:
             a_real, a_fake = attns
             ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
@@ -89,7 +99,7 @@ def test(net):
                         dict(Real=(ids_tar, a_real),
                              Fake_R=(ids_real, a_fake_r),
                              Fake_F=(ids_fake, a_fake_f)))
-
+        """
         fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
 
         #choose range of evaluation
@@ -98,22 +108,23 @@ def test(net):
 
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
             bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)
+            testlog.info('Eval/bleu-1: '+str(bleu1))
             bleu2 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=2)
+            testlog.info('Eval/bleu-2: '+str(bleu2))
             bleu3 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=3)
+            testlog.info('Eval/bleu-3: '+str(bleu3))
             bleu = corp_bleu(references=test_sents, hypotheses=fake_sents)
             #how to load pre-built arpa file?
-            log.info('Eval/bleu-1'+str(bleu1))
-            log.info('Eval/bleu-2'+str(bleu2))
-            log.info('Eval/bleu-3'+str(bleu3))
-            log.info('Eval/5_nltk_Bleu'+str(bleu))
+            testlog.info('Eval/5_nltk_Bleu: '+str(bleu))
+            testlog.info('Eval/leakgan_bleu: '+str(leakgan_bleu(test_sents, fake_sents)))
+            testlog.info('Eval/urop_bleu: '+str(urop_bleu(test_sents, fake_sents)))
 
         bleu4 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=4)
         ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
             vocab = net.vocab,
             save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter), # .arpa file path
             n = cfg.N)
-        log.info('Eval/bleu-4'+str(bleu4))
-        log.info('Eval/6_Reverse_Perplexity'+str(ppl))
-        ### end
+        testlog.info('Eval/bleu-4: '+str(bleu4))
+        testlog.info('Eval/6_Reverse_Perplexity: '+str(ppl))
     # end test session
     print('exit test' + '\033[0;0m') # reset color
