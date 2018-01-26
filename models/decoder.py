@@ -83,14 +83,21 @@ class DecoderRNN(Decoder):
     def _get_sos_batch(self, bsz):
         sos_ids = to_gpu(self.cfg.cuda, Variable(torch.ones(bsz, 1).long()))
         sos_ids.fill_(self.vocab.SOS_ID)
-        return self.embedding(sos_ids)
+        sos_embed = self.embedding(sos_ids)
+        return sos_embed
 
-    def _pads_after_eos(self, ids, outs, finished):
+    def _pads_after_eos(self, ids, out, finished):
+        # zero ids after eos
+        assert(self.vocab.PAD_ID == 0)
         ids_mask = finished.eq(0)
-        outs_mask = ids_mask.unsqueeze(2).expand_as(outs)
         ids = ids * ids_mask.long()
-        outs = outs * outs_mask.float()
-        finished += ids.eq(self.vocab.EOS_ID).byte()
+        # zero out after eos
+        out_mask = ids_mask.unsqueeze(2).expand_as(out)
+        out = out * out_mask.float()
+        #out_ones = finished.gt(0)
+        #out[:, 0, self.vocab.PAD_ID] = out_ones.float()
+        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
+        return ids, out, finished
 
     def forward(self, *args, ae_mode=False, train=False):
         self._check_train(train)
@@ -112,8 +119,8 @@ class DecoderRNN(Decoder):
         init_state = self._initial_state(code)
         code_for_all_steps = code.unsqueeze(1).repeat(1, max_len, 1)
         # [batch_size x max_len x hidden_size]
-
         embeddings = self.embedding(indices) # for teacher forcing
+        #import ipdb; ipdb.set_trace()
         inputs = torch.cat([embeddings, code_for_all_steps], 2)
         packed_inputs = pack_padded_sequence(input=inputs,
                                              lengths=lengths,
@@ -163,20 +170,22 @@ class DecoderRNN(Decoder):
             logit = self.linear(out.squeeze(1)) # [bsz, ntokens]
             _, ids = torch.max(logit, 1, keepdim=True)
 
+            # for the next step
+            embedding = self.embedding(ids)
+            input_ = torch.cat([embedding, code.unsqueeze(1)], 2)
+
             if self.cfg.disc_s_in == 'embed':
                 out = F.softmax(logit/1e-6, 1).unsqueeze(1)
                 # [bsz, 1 vocab_size]
 
             # if eos token has already appeared, fill zeros
-            ids, out, finished = self._pads_after_eos(ids, out, finished)
+            #ids, out, finished = self._pads_after_eos(ids, out, finished)
 
             # append generated token ids & outs at each step
             all_ids.append(ids)
             all_outs.append(out)
             all_logits.append(logit.unsqueeze(1))
-            # for the next step
-            embedding = self.embedding(ids)
-            input_ = torch.cat([embedding, code.unsqueeze(1)], 2)
+
 
         # concatenate all the results
         max_ids = torch.cat(all_ids, 1).data.cpu().numpy() # [bsz, max_len]

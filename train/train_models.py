@@ -60,9 +60,9 @@ def train_ae(cfg, net, batch, optimize=True):
                          dict(Loss=loss.data, Accuracy=accuracy.data[0]))
 
 
-def eval_ae(cfg, net, batch):
-    # forward
-    code = net.enc(batch.src, batch.len, ae_mode=True, train=False)
+def eval_ae_tf(cfg, net, batch):
+    # forward / NOTE : ae_mode off?
+    code = net.enc(batch.src, batch.len, ae_mode=False, train=False)
     output = net.dec(code, batch.src, batch.len, ae_mode=True, train=False)
     # output.size(): batch_size x max_len x ntokens (logits)
 
@@ -73,9 +73,21 @@ def eval_ae(cfg, net, batch):
 
     return targets, outputs
 
+def eval_ae_fr(cfg, net, batch):
+    # forward / NOTE : ae_mode off?
+    # "real" real
+    code = net.enc(batch.src, batch.len, ae_mode=False, train=False)
+    max_ids, outputs = net.dec(code, ae_mode=False, train=False)
+    # output.size(): batch_size x max_len x ntokens (logits)
+    target = batch.tar.view(outputs.size(0), -1)
+    targets = target.data.cpu().numpy()
+
+    return targets, max_ids
+
 
 def train_dec(cfg, net, fake_code, optimize=True):
     # forward
+    fake_code = fake_code.detach() # NOTE cut the graph
     fake_ids, fake_outs = net.dec(fake_code, train=True)
     # fake_outs.size() : [batch_size*2, max_len, vocab_size]
     _, pred_fake, attn_fake = net.disc_s(fake_outs, train=False)
@@ -171,7 +183,7 @@ def train_disc_c(cfg, net, code_real, code_fake, optimize=True):
     code_real.register_hook(grad_hook) # normed_grad
 
     # forward
-    err_d_real = net.disc_c(code_real, train=True) # NOTE:train encoder as well
+    err_d_real = net.disc_c(code_real.detach(), train=True) # NOTE:train encoder as well
     err_d_fake = net.disc_c(code_fake.detach(), train=True) # NOTE:dectach gen
     err_d = -(err_d_real - err_d_fake)
 

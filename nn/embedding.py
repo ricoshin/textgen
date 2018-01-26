@@ -19,12 +19,22 @@ class WordEmbedding(nn.Module):
             if not cfg.load_glove:
                 log.warning('cfg.load_glove is False, but trying init_embed.')
             self.embed.weight.data.copy_(torch.from_numpy(init_embed))
+        else:
+            self._init_weights()
 
         # fix embedding
-        if cfg.load_glove and cfg.fix_embed:
+        if cfg.fix_embed:
             if not cfg.load_glove:
                 log.warning('cfg.load_glove is False, but trying fix_embed.')
             self.embed.weight.requires_grad = False
+
+
+    def _init_weights(self):
+        # unifrom initialization in the range of [-0.1, 0.1]
+        initrange = 0.1
+        # Initialize Vocabulary Matrix Weight
+        self.embedding.weight.data.uniform_(-initrange, initrange)
+
 
     def forward(self, indices, mode='hard'):
         assert(mode in ['hard', 'soft'])

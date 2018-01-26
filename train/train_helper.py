@@ -93,7 +93,7 @@ def ids_to_sent_for_eval(vocab, ids):
         sents.append(ids_to_sent(vocab, truncated_ids, no_pad=True))
     return sents
 
-def print_ae_sents(vocab, target_ids, output_ids, lengths, nline=5):
+def print_ae_tf_sents(vocab, target_ids, output_ids, lengths, nline=5):
     coupled = list(zip(target_ids, output_ids, lengths))
     # shuffle : to prevent always printing the longest ones first
     np.random.shuffle(coupled)
@@ -102,6 +102,17 @@ def print_ae_sents(vocab, target_ids, output_ids, lengths, nline=5):
         if i > nline - 1: break
         log.info("[X] " + ids_to_sent(vocab, tar_ids, length=length))
         log.info("[Y] " + ids_to_sent(vocab, out_ids, length=length))
+        print_line()
+
+def print_ae_fr_sents(vocab, target_ids, output_ids, nline=5):
+    coupled = list(zip(target_ids, output_ids))
+    # shuffle : to prevent always printing the longest ones first
+    np.random.shuffle(coupled)
+    print_line()
+    for i, (tar_ids, out_ids) in enumerate(coupled):
+        if i > nline - 1: break
+        log.info("[X] " + ids_to_sent(vocab, tar_ids, no_pad=False))
+        log.info("[Y] " + ids_to_sent(vocab, out_ids, no_pad=False))
         print_line()
 
 def print_gen_sents(vocab, output_ids, nline=999):

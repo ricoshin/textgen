@@ -15,11 +15,11 @@ from models.generator import Generator
 from models.disc_sample import SampleDiscriminator
 
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
-                                train_disc_c, train_disc_s)
-from train.train_helper import (load_test_data, append_pads, print_ae_sents,
-                                print_gen_sents, ids_to_sent_for_eval,
-                                halve_attns, print_attns)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
+                                train_gen, train_disc_c, train_disc_s)
+from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+                                print_ae_fr_sents, print_gen_sents,
+                                ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
@@ -88,17 +88,21 @@ def train(net):
             # exponentially decaying noise on autoencoder
             if sv.batch_step % cfg.anneal_step == 0:
                 # noise_raius = 0.2(default) / noise_anneal = 0.995(default)
-                net.ae.noise_radius = net.ae.noise_radius * cfg.noise_anneal
+                net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
             if not sv.batch_step % cfg.log_interval == 0:
                 continue
 
             # Autoencoder
             batch = net.data_eval.next()
-            tars, outs = eval_ae(cfg, net, batch)
+            # NOTE fix later! merge these two
+            tars_tf, outs_tf = eval_ae_tf(cfg, net, batch) # teacher forcing
+            print_ae_tf_sents(net.vocab, tars_tf, outs_tf, batch.len, cfg.log_nsample)
+            tars_fr, outs_fr = eval_ae_fr(cfg, net, batch) # free running
+            print_ae_fr_sents(net.vocab, tars_fr, outs_fr, cfg.log_nsample)
+            #import ipdb; ipdb.set_trace()
             # dump results
             rp_ae.drop_log_and_events(sv, writer)
-            print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
             # Generator + Discriminator_c
             fake_code = net.gen(fixed_noise, train=False)
