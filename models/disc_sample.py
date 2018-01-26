@@ -68,7 +68,7 @@ class SampleDiscriminator(nn.Module):
             self.convs.append(conv)
             self.convs_no_bias.append(conv_nb)
             self.add_module("MainConv(%d)" % (i+1), conv)
-            self.add_module("MainConv(%d)" % (i+1), conv)
+            self.add_module("MainConvNoBias(%d)" % (i+1), conv_nb)
             #bias = nn.Parameter(torch.zeros([1, ch[i+1], heights[i+1], 1]))
 
         c_ = c[1:] # [300, 500, 700, 900]
@@ -179,12 +179,12 @@ class SampleDiscriminator(nn.Module):
 
     def _generate_pad_masks(self, x):
         # [bsz, embed_size, 1, max_len]
-        x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False).cpu()
+        x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False)
         # [bsz, 1, 1, max_len]
         masks = []
         for conv in self.convs_no_bias:
             x = conv(x) # [bsz, 1, 1, max_len]
-            zeros = x.eq(0).data
+            zeros = x.eq(0).data.cpu()
             mask = torch.zeros(x.size()).masked_fill_(zeros, float('-inf'))
             masks.append(Variable(mask, requires_grad=False).cuda()) # mask pads as 0s
         return masks

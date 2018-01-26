@@ -47,6 +47,9 @@ class Encoder(nn.Module):
         if ae_mode and code.requires_grad:
             code.register_hook(self._store_grad_norm)
 
+    def _normalize_code(self, code):
+        norms = torch.norm(code, 2, 1)
+        return torch.div(code, norms.unsqueeze(1).expand_as(code))
 
 class EncoderRNN(Encoder):
     def __init__(self, cfg, vocab):
@@ -84,8 +87,7 @@ class EncoderRNN(Encoder):
         code = hidden[-1] # last hidden : [batch_size x hidden_size]
 
         # normalize hidden
-        norms = torch.norm(code, 2, 1)
-        code = torch.div(code, norms.unsqueeze(1).expand_as(code))
+        code = self._normalize_code(code)
 
         # for autoencdoer
         code = self._add_noise(ae_mode, code)
