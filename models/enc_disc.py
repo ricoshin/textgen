@@ -11,12 +11,14 @@ from nn.embedding import WordEmbedding
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
+from models.encoder import Encoder
+
 log = logging.getLogger('main')
 
 
-class EncoderDiscriminator(nn.Module):
+class EncoderDiscriminator(Encoder):
     def __init__(self, cfg, vocab):
-        super(SampleDiscriminator, self).__init__()
+        super(EncoderDiscriminator, self).__init__(cfg, vocab)
         # Sentence should be represented as a matrix : [max_len x step_size]
         # Step represetation can be :
         #   - hidden states which each word is generated from
@@ -31,11 +33,11 @@ class EncoderDiscriminator(nn.Module):
             # in:width, f:filter, s:stride
             return (in_size - f_size) // s_size + 1
 
-        n_conv = 4
-        s = [1, 2, 2] # stride (last_one should be calculated later)
-        f = [3, 3, 3] # filter (last_one should be calculated later)
+        n_conv = 3
+        s = [2, 2] # stride (last_one should be calculated later)
+        f = [5, 5] # filter (last_one should be calculated later)
         #c = [in_chann] + [128*(2**(i)) for i in range(n_conv)] # channel
-        c = [in_chann] + [300, 400, 500, 600]
+        c = [in_chann] + [300, 300, 600]
 
 
         w = [cfg.max_len + 1] # including sos/eos
@@ -60,21 +62,32 @@ class EncoderDiscriminator(nn.Module):
         #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
 
         # main convoutional layers
-        self.convs = []
-        self.convs_no_bias = [] # just for calculate zero pad
+        self.convs_enc = []
+        self.convs_enc_no_bias = [] # just for calculate zero pad
         for i in range(n_conv):
             conv = nn.Conv2d(c[i], c[i+1], (1, f[i]), s[i], bias=True)
             conv_nb = nn.Conv2d(1, 1, (1, f[i]), s[i], bias=False)
-            self.convs.append(conv)
-            self.convs_no_bias.append(conv_nb)
+            self.convs_enc.append(conv)
+            self.convs_enc_no_bias.append(conv_nb)
             self.add_module("MainConv(%d)" % (i+1), conv)
-            self.add_module("MainConv(%d)" % (i+1), conv)
-            #bias = nn.Parameter(torch.zeros([1, ch[i+1], heights[i+1], 1]))
+            self.add_module("MainConvNoBias(%d)" % (i+1), conv_nb)
+
+        # last fc
+        self.fc_enc = MultiLinear4D(c[-1], cfg.hidden_size, dim=1, n_layers=1)
+
+        if not cfg.with_attn:
+            return
+
+        self.convs_attn = []
+        for i in range(n_conv):
+            conv = nn.Conv2d(c[i], c[i+1], (1, f[i]), s[i], bias=True)
+            self.convs_attn.append(conv)
+            self.add_module("AttnConv(%d)" % (i+1), conv)
 
         c_ = c[1:] # [300, 500, 700, 900]
         w_ = w[1:] # [19, 9, 4, 1]
         #n_attns = [w // 4 for w in w_] # [4, 2, 1]
-        n_attns = [3, 2, 1]
+        n_attns = [1, 1]
 
         # wordwise attention layers
         self.word_attns = []
@@ -89,37 +102,58 @@ class EncoderDiscriminator(nn.Module):
                                          last_act='softmax')
 
         # final fc layers for attention
-        self.last_fc_attn = MultiLinear4D(n_mat, 1, dim=1, n_layers=2)
+        self.fc_attn = MultiLinear4D(n_mat, 1, dim=1, n_layers=2)
 
-        # final fc layers for reconstruction
-        code_dim = cfg.hidden_size
-        self.last_fc_recon = MultiLinear4D(c[-1], code_dim, dim=1, n_layers=2)
-
-        # dropout & binary CE
-        self.dropout = nn.Dropout(cfg.dropout)
+        # binary CE
         self.criterion_bce = nn.BCELoss()
-        #self.criterion_cs = F.cosine_similarity()
 
 
-
-    def forward(self, x, train=False):
+    def forward(self, indices, disc_mode=False, ae_mode=False, train=False):
         self._check_train(train)
-        x = self._adaptive_embedding(x) # [bsz, max_len, embed_size]
-        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
+        x = self._adaptive_embedding(indices) # [bsz, max_len, embed_size]
+        x = x_in = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
 
         # generate mask for wordwise attention
-        pad_masks = self._generate_pad_masks(x)
+        if disc_mode:
+            x_enc = []
+            pad_masks = self._generate_pad_masks(x)
 
-        # main conv & wordwise attention
+        ###################
+        # encoding layers #
+        ###################
+        for i, conv in enumerate(self.convs_enc):
+            try:
+                x = F.relu(conv(x))
+            except:
+                import ipdb; ipdb.set_trace()
+            if disc_mode:
+                x_enc.append(Variable(x.data, requires_grad=False))
+        # last fc for encoding
+        code = self.fc_enc(x).squeeze()
+
+        # normalize code
+        code = self._normalize_code(code)
+
+        # for autoencdoer
+        code = self._add_noise(ae_mode, code)
+        self._save_norm(ae_mode, code)
+
+        if not disc_mode:
+            return code
+
+        ####################
+        # attention layers #
+        ####################
         w_ctx =[]
         w_attn = []
-        for i in range(len(self.convs)):
-            # main conv
-            x = F.relu(self.convs[i](x))
+        x = x_in
+        for i, conv in enumerate(self.convs_attn):
+            # conv layers for attention
+            x = F.relu(conv(x))
             # wordwise attention
-            if i < (len(self.convs)-1): # before it reaches to the last layer
+            if i < (len(self.convs_attn)-1): # until 2nd last layer
                 # compute wordwise attention
-                ctx, attn = self.word_attns[i](x, pad_masks[i])
+                ctx, attn = self.word_attns[i](x, x_enc[i], pad_masks[i])
                 # ctx : [bsz, n_mat, 1, 1]
                 # attn : [bsz, 1, 1, len]
                 attn = attn.squeeze().data.cpu().numpy() # [bsz, max_len]
@@ -131,25 +165,22 @@ class EncoderDiscriminator(nn.Module):
             w_attn.append(attn)
 
         # stack along height dim
-        x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
+        w_ctx = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
 
         # layerwise attention
-        l_ctx, l_attn = self.layer_attn(x_a)
+        l_ctx, l_attn = self.layer_attn(w_ctx)
         # ctx : [bsz, n_mat, 1, 1]
         # attn : [bsz, 1, n_layers, 1]
         l_attn = l_attn.squeeze().permute(1,0).data.cpu().numpy()
         # [n_layers, bsz, 1]
 
         # final fc for attention
-        x_a = self.last_fc_attn(l_ctx).squeeze() # [bsz]
-        x_a = F.sigmoid(x_a)
-
-        # final fc for reconstruction
-        x = self.last_fc_recon(x)
+        x = self.fc_attn(l_ctx).squeeze() # [bsz]
+        x = F.sigmoid(x)
 
         # w_attn : [n_layers, bsz, len]
         # layer_attn : [n_layers, bsz]
-        return x, x_a, [w_attn, l_attn]
+        return x, [w_attn, l_attn]
 
     def _check_train(self, train):
         if train:
@@ -179,12 +210,12 @@ class EncoderDiscriminator(nn.Module):
 
     def _generate_pad_masks(self, x):
         # [bsz, embed_size, 1, max_len]
-        x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False).cpu()
+        x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False)
         # [bsz, 1, 1, max_len]
         masks = []
-        for conv in self.convs_no_bias:
+        for conv in self.convs_enc_no_bias:
             x = conv(x) # [bsz, 1, 1, max_len]
-            zeros = x.eq(0).data
+            zeros = x.eq(0).data.cpu()
             mask = torch.zeros(x.size()).masked_fill_(zeros, float('-inf'))
             masks.append(Variable(mask, requires_grad=False).cuda()) # mask pads as 0s
         return masks

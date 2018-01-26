@@ -28,7 +28,7 @@ parser.add_argument('--name', type=str, required=True)
 
 parser.add_argument('--min_len', type=int, default=10,
                     help='minimum sentence length')
-parser.add_argument('--max_len', type=int, default=30,
+parser.add_argument('--max_len', type=int, default=20,
                     help='maximum sentence length')
 #parser.add_argument('--lowercase', action='store_true',
 #                    help='lowercase all text')
@@ -119,11 +119,11 @@ parser.add_argument('--disc_s_hold', type=int, default=1,
                     help='num of initial epochs not training train disc_s')
 parser.add_argument('--fix_embed', type=str2bool, default=True,
                     help='pretain embedding matrix weights (not trainable)')
-parser.add_argument('--word_temp', type=float, default=1e-2,
+parser.add_argument('--word_temp', type=float, default=1,
                     help='softmax temperature for wordwise attention')
-parser.add_argument('--layer_temp', type=float, default=1e-2,
+parser.add_argument('--layer_temp', type=float, default=1,
                     help='softmax temperature for layerwise attention')
-parser.add_argument('--anneal_step', type=int, default=200,
+parser.add_argument('--anneal_step', type=int, default=10,
                     help='autoencdoer noise annealing interval')
 
 # Evaluation Arguments

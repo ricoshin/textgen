@@ -21,7 +21,7 @@ class WordEmbedding(nn.Module):
             self.embed.weight.data.copy_(torch.from_numpy(init_embed))
 
         # fix embedding
-        if cfg.load_glove and cfg.fix_embed:
+        if cfg.fix_embed:
             if not cfg.load_glove:
                 log.warning('cfg.load_glove is False, but trying fix_embed.')
             self.embed.weight.requires_grad = False

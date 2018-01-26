@@ -33,6 +33,10 @@ class Encoder(nn.Module):
                                    std=self.noise_radius)
         return to_gpu(self.cfg.cuda, Variable(gauss_noise))
 
+    def _normalize_code(self, code):
+        norms = torch.norm(code, 2, 1)
+        return torch.div(code, norms.unsqueeze(1).expand_as(code))
+
     def _add_noise(self, ae_mode, code):
         if ae_mode and self.cfg.noise_radius > 0:
             code = code + self._gen_gauss_noise(code.size())
@@ -84,8 +88,7 @@ class EncoderRNN(Encoder):
         code = hidden[-1] # last hidden : [batch_size x hidden_size]
 
         # normalize hidden
-        norms = torch.norm(code, 2, 1)
-        code = torch.div(code, norms.unsqueeze(1).expand_as(code))
+        code = self._normalize_code(code)
 
         # for autoencdoer
         code = self._add_noise(ae_mode, code)

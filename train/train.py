@@ -15,11 +15,11 @@ from models.generator import Generator
 from models.disc_sample import SampleDiscriminator
 
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
-                                train_disc_c, train_disc_s)
-from train.train_helper import (load_test_data, append_pads, print_ae_sents,
-                                print_gen_sents, ids_to_sent_for_eval,
-                                halve_attns, print_attns)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
+                                train_gen, train_disc_c, train_disc_s)
+from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+                                print_ae_fr_sents, print_gen_sents,
+                                ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
@@ -54,7 +54,10 @@ def train(net):
                     batch = net.data_gan.next()
 
                     # train CodeDiscriminator
-                    code_real = net.enc(batch.src, batch.len, train=True)
+                    # "real" real
+                    xx = batch.tar.view(cfg.batch_size, -1)
+                    xx = append_pads(cfg, xx, net.vocab)
+                    code_real = net.enc(xx, train=True)
                     code_fake = net.gen(train=False)
                     rp_dc = train_disc_c(cfg, net, code_real, code_fake)
 
@@ -72,33 +75,35 @@ def train(net):
                             outs_real = append_pads(cfg, outs_real, net.vocab)
                             #outs_real = batch.tar.view(cfg.batch_size, -1)
 
-                        rp_ds_l_gan, rp_ds_l_rec, rp_ds_pred, attns = \
+                        rp_ds_loss, rp_ds_pred, attns = \
                             train_disc_s(cfg, net, outs_real, outs_fake,
                                          code_real, code_fake)
 
                 # train generator(with disc_c) / decoder(with disc_s)
                 for i in range(cfg.niters_gan_g): # default: 1
-                    rp_gen, code_fake = train_gen(cfg, net, optimize=False)
+                    rp_gen, code_fake = train_gen(cfg, net)
 
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
                         rp_dec = train_dec(cfg, net, code_fake)
 
-                    net.optim_gen.step() # for retaining graph
-
             # exponentially decaying noise on autoencoder
             if sv.batch_step % cfg.anneal_step == 0:
                 # noise_raius = 0.2(default) / noise_anneal = 0.995(default)
-                net.ae.noise_radius = net.ae.noise_radius * cfg.noise_anneal
+                net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
             if not sv.batch_step % cfg.log_interval == 0:
                 continue
 
             # Autoencoder
+            # NOTE fix later! merge these two
             batch = net.data_eval.next()
-            tars, outs = eval_ae(cfg, net, batch)
+            tars, outs = eval_ae_tf(cfg, net, batch) # teacher forcing
+            print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+            tars, outs = eval_ae_fr(cfg, net, batch) # free running
+            print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
+
             # dump results
             rp_ae.drop_log_and_events(sv, writer)
-            print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
             # Generator + Discriminator_c
             fake_code = net.gen(fixed_noise, train=False)
@@ -111,9 +116,8 @@ def train(net):
 
             # Discriminator_s
             if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                rp_ds_l_gan.update(dict(G_Dec=rp_dec.loss))
-                rp_ds_l_gan.drop_log_and_events(sv, writer)
-                rp_ds_l_rec.drop_log_and_events(sv, writer, False)
+                rp_ds_loss.update(dict(G_Dec=rp_dec.loss))
+                rp_ds_loss.drop_log_and_events(sv, writer)
 
                 rp_ds_pred.update(dict(G_Dec=rp_dec.pred))
                 rp_ds_pred.drop_log_and_events(sv, writer, False)

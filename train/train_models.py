@@ -6,15 +6,18 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from train.train_helper import ResultPackage
+from train.train_helper import ResultPackage, append_pads
 from utils.utils import to_gpu
 
 dict = collections.OrderedDict
 
 
 def train_ae(cfg, net, batch, optimize=True):
+    # "real" real
+    xx = batch.tar.view(cfg.batch_size, -1)
+    xx = append_pads(cfg, xx, net.vocab)
     # forward
-    code = net.enc(batch.src, batch.len, ae_mode=True, train=True)
+    code = net.enc(xx, ae_mode=True, train=True)
     output = net.dec(code, batch.src, batch.len, ae_mode=True, train=True)
     # output.size(): batch_size x max_len x ntokens (logits)
 
@@ -48,7 +51,6 @@ def train_ae(cfg, net, batch, optimize=True):
     loss.backward(retain_graph=(not optimize))
 
     # gradient clipping
-    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
     torch.nn.utils.clip_grad_norm(net.dec.parameters(), cfg.clip)
 
     # optimize
@@ -60,9 +62,12 @@ def train_ae(cfg, net, batch, optimize=True):
                          dict(Loss=loss.data, Accuracy=accuracy.data[0]))
 
 
-def eval_ae(cfg, net, batch):
-    # forward
-    code = net.enc(batch.src, batch.len, ae_mode=True, train=False)
+def eval_ae_tf(cfg, net, batch):
+    # forward / NOTE : ae_mode off?
+    # "real" real
+    xx = batch.tar.view(cfg.batch_size, -1)
+    xx = append_pads(cfg, xx, net.vocab)
+    code = net.enc(xx, disc_mode=False, ae_mode=True, train=False)
     output = net.dec(code, batch.src, batch.len, ae_mode=True, train=False)
     # output.size(): batch_size x max_len x ntokens (logits)
 
@@ -74,11 +79,26 @@ def eval_ae(cfg, net, batch):
     return targets, outputs
 
 
+def eval_ae_fr(cfg, net, batch):
+    # forward / NOTE : ae_mode off?
+    # "real" real
+    xx = batch.tar.view(cfg.batch_size, -1)
+    xx = append_pads(cfg, xx, net.vocab)
+    code = net.enc(xx, disc_mode=False, ae_mode=False, train=False)
+    max_ids, outputs = net.dec(code, ae_mode=False, train=False)
+    # output.size(): batch_size x max_len x ntokens (logits)
+    target = batch.tar.view(outputs.size(0), -1)
+    targets = target.data.cpu().numpy()
+
+    return targets, max_ids
+
+
 def train_dec(cfg, net, fake_code, optimize=True):
     # forward
+    fake_code = fake_code.detach() # NOTE cut the graph
     fake_ids, fake_outs = net.dec(fake_code, train=True)
     # fake_outs.size() : [batch_size*2, max_len, vocab_size]
-    _, pred_fake, attn_fake = net.disc_s(fake_outs, train=False)
+    pred_fake, attn_fake = net.enc(fake_outs, disc_mode=True, train=False)
 
     # register hook on logits of decoder
     def grad_hook(grad):
@@ -100,7 +120,7 @@ def train_dec(cfg, net, fake_code, optimize=True):
 
     # loss
     label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_fake.size())))
-    loss = net.disc_s.criterion_bce(pred_fake, label_real)
+    loss = net.enc.criterion_bce(pred_fake, label_real)
 
     # pred average
     mean = pred_fake.mean()
@@ -119,7 +139,7 @@ def train_dec(cfg, net, fake_code, optimize=True):
 def train_gen(cfg, net, optimize=True):
     # forward
     fake_code = net.gen(train=True)
-    err_g = net.disc_c(fake_code, train=False)
+    err_g = net.disc(fake_code, train=False)
 
     # backward
     one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
@@ -138,7 +158,7 @@ def train_gen(cfg, net, optimize=True):
 def train_disc_c(cfg, net, code_real, code_fake, optimize=True):
     # NOTE : encoder will be trained adversarially with disc_c
     # clamp parameters to a cube
-    for p in net.disc_c.parameters():
+    for p in net.disc.parameters():
         p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
         # WGAN clamp (default:0.01)
 
@@ -171,21 +191,19 @@ def train_disc_c(cfg, net, code_real, code_fake, optimize=True):
     code_real.register_hook(grad_hook) # normed_grad
 
     # forward
-    err_d_real = net.disc_c(code_real, train=True) # NOTE:train encoder as well
-    err_d_fake = net.disc_c(code_fake.detach(), train=True) # NOTE:dectach gen
-    err_d = -(err_d_real - err_d_fake)
+    err_d_real = net.disc(code_real, train=True) # NOTE:train encoder as well
+    err_d_fake = net.disc(code_fake.detach(), train=True) # NOTE:dectach gen
+    err_d = err_d_real - err_d_fake
 
     # backward
     one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
     err_d_real.backward(one, retain_graph=(not optimize))
     err_d_fake.backward((-1*one), retain_graph=(not optimize))
 
-    # clip encoder's gradient
-    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
     # optimize
     if optimize:
         net.optim_enc.step()
-        net.optim_disc_c.step()
+        net.optim_disc.step()
 
     return ResultPackage("Code_GAN_Loss",
                          dict(D_Total=err_d.data[0],
@@ -196,57 +214,43 @@ def train_disc_c(cfg, net, code_real, code_fake, optimize=True):
 def train_disc_s(cfg, net, in_real, in_fake, code_real, code_fake,
                  optimize=True):
     # clamp parameters to a cube
-    for p in net.disc_s.parameters():
+    for p in net.enc.parameters():
         p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
         # WGAN clamp (default:0.01)
 
     # forward
-    rec_real, pred_real, attn_real = net.disc_s(in_real.detach(), train=True)
-    rec_fake, pred_fake, attn_fake = net.disc_s(in_fake.detach(), train=True)
+    in_real = Variable(in_real.data, requires_grad=False) # detach
+    in_fake = Variable(in_fake.data, requires_grad=False) # detach
+    pred_real, attn_real = net.enc(in_real, disc_mode=True, train=True)
+    pred_fake, attn_fake = net.enc(in_fake, disc_mode=True, train=True)
 
-    # attention loss
+    # gan loss
     label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
     label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
-    l_gan_real = net.disc_s.criterion_bce(pred_real, label_real)
-    l_gan_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
-
-    # reconstruction loss
-    l_rec_real = F.cosine_similarity(rec_real.squeeze(), code_real.detach())
-    l_rec_fake = F.cosine_similarity(rec_fake.squeeze(), code_fake.detach())
-    l_rec_real = torch.sum(l_rec_real, dim=0)
-    l_rec_fake = torch.sum(l_rec_fake, dim=0)
-
-    # total loss
-    l_gan_total = l_gan_real + l_gan_fake
-    l_rec_total = l_rec_real + l_rec_fake
-    l_total = l_gan_total + l_rec_total
+    loss_real = net.enc.criterion_bce(pred_real, label_real)
+    loss_fake = net.enc.criterion_bce(pred_fake, label_fake)
+    loss_total = loss_real + loss_fake
 
     # pred mean
-    real_mean = pred_real.mean()
-    fake_mean = pred_fake.mean()
+    pred_real = pred_real.mean()
+    pred_fake = pred_fake.mean()
 
     # backward
-    l_real = l_gan_real + l_rec_real
-    l_fake = l_gan_fake + l_rec_fake
-    l_real.backward(retain_graph=(not optimize))
-    l_fake.backward(retain_graph=(not optimize))
+    loss_real.backward(retain_graph=(not optimize))
+    loss_fake.backward(retain_graph=(not optimize))
 
     # optimize
     if optimize:
-        net.optim_disc_s.step()
+        net.optim_enc.step()
 
     # results
-    loss_gan = ResultPackage("Sample_GAN_loss",
-                             dict(D_Total=l_gan_total,
-                                  D_Real=l_gan_real,
-                                  D_Fake=l_gan_fake))
-    loss_rec = ResultPackage("Sample_Recon_loss",
-                             dict(D_Total=l_rec_total,
-                                  D_Feal=l_rec_real,
-                                  D_Fake=l_rec_fake))
-    pred_gan = ResultPackage("Sample_GAN_pred",
-                             dict(D_real=real_mean,
-                                  D_Fake=fake_mean))
+    loss = ResultPackage("Sample_GAN_loss",
+                          dict(D_Total=loss_total,
+                               D_Real=loss_real,
+                               D_Fake=loss_fake))
+    pred = ResultPackage("Sample_GAN_pred",
+                          dict(D_real=pred_real,
+                               D_Fake=pred_fake))
     attn = [attn_real, attn_fake]
 
-    return loss_gan, loss_rec, pred_gan, attn
+    return loss, pred, attn

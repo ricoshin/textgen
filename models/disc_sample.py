@@ -68,7 +68,7 @@ class SampleDiscriminator(nn.Module):
             self.convs.append(conv)
             self.convs_no_bias.append(conv_nb)
             self.add_module("MainConv(%d)" % (i+1), conv)
-            self.add_module("MainConv(%d)" % (i+1), conv)
+            self.add_module("MainConvNoBias(%d)" % (i+1), conv_nb)
             #bias = nn.Parameter(torch.zeros([1, ch[i+1], heights[i+1], 1]))
 
         c_ = c[1:] # [300, 500, 700, 900]
