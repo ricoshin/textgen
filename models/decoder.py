@@ -39,9 +39,13 @@ class Decoder(nn.Module):
             logits.register_hook(self._store_grad_norm)
 
 
-class DecoderRNN(Decoder):
+class DecoderRNN(nn.Module):
     def __init__(self, cfg, vocab):
-        super(DecoderRNN, self).__init__(cfg, vocab)
+        super(DecoderRNN, self).__init__()
+        self.cfg = cfg
+        self.vocab = vocab
+        self.grad_norm = None
+        self.embedding = WordEmbedding(cfg, vocab.embed_mat)
         # RNN Decoder
         decoder_input_size = cfg.embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
@@ -99,10 +103,10 @@ class DecoderRNN(Decoder):
         finished = finished + ids.eq(self.vocab.EOS_ID).byte()
         return ids, out, finished
 
-    def forward(self, *args, ae_mode=False, train=False):
-        self._check_train(train)
+    def forward(self, *args, teacher=False, train=False):
+        #self._check_train(train)
 
-        if ae_mode: # autoencoder
+        if teacher: # autoencoder
             assert(len(args) == 3)
             outs = self._teacher_force(*args)
         else: # decode only
@@ -193,3 +197,19 @@ class DecoderRNN(Decoder):
         self.logits = torch.cat(all_logits, 1) # [bsz, max_len]
 
         return max_ids, outs
+
+    def _check_train(self, train):
+        if train:
+            self.train()
+            self.zero_grad()
+        else:
+            self.eval()
+
+    def _store_grad_norm(self, grad):
+        norm = torch.norm(grad, 2, 1)
+        self.grad_norm = norm.detach().data.mean()
+        return grad
+
+    def _save_norm(self, logits):
+        if logits.requires_grad:
+            logits.register_hook(self._store_grad_norm)

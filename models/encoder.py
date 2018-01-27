@@ -33,8 +33,9 @@ class Encoder(nn.Module):
                                    std=self.noise_radius)
         return to_gpu(self.cfg.cuda, Variable(gauss_noise))
 
-    def _add_noise(self, ae_mode, code):
-        if ae_mode and self.cfg.noise_radius > 0:
+    def _add_noise(self, is_noise, code):
+        assert(isinstance(is_noise, bool))
+        if is_noise and self.cfg.noise_radius > 0:
             code = code + self._gen_gauss_noise(code.size())
         return code
 
@@ -43,17 +44,22 @@ class Encoder(nn.Module):
         self.grad_norm = norm.detach().data.mean()
         return grad
 
-    def _save_norm(self, ae_mode, code):
-        if ae_mode and code.requires_grad:
+    def _save_norm(self, is_sv_norm, code):
+        assert(isinstance(is_sv_norm, bool))
+        if is_sv_norm and code.requires_grad:
             code.register_hook(self._store_grad_norm)
 
     def _normalize_code(self, code):
         norms = torch.norm(code, 2, 1)
         return torch.div(code, norms.unsqueeze(1).expand_as(code))
 
-class EncoderRNN(Encoder):
+class EncoderRNN(nn.Module):
     def __init__(self, cfg, vocab):
-        super(EncoderRNN, self).__init__(cfg, vocab)
+        super(EncoderRNN, self).__init__()
+        self.cfg = cfg
+        self.noise_radius = cfg.noise_radius
+        self.grad_norm = None
+        self.embedding = WordEmbedding(cfg, vocab.embed_mat)
 
         # RNN Encoder
         self.encoder = nn.LSTM(input_size=cfg.embed_size,
@@ -70,11 +76,12 @@ class EncoderRNN(Encoder):
         for p in self.encoder.parameters():
             p.data.uniform_(-initrange, initrange)
 
-    def forward(self, indices, lengths, ae_mode=False, train=False):
+    def forward(self, indices, lengths, noise=False, sv_norm=False,
+                train=False):
         # indices = [bsz, max_len], lengths = [bsz]
         assert(len(indices.size()) == 2)
         assert(len(lengths) == indices.size(0))
-        self._check_train(train)
+        #self._check_train(train)
 
         # embedding and pack
         inputs = self.embedding(indices)
@@ -90,7 +97,39 @@ class EncoderRNN(Encoder):
         code = self._normalize_code(code)
 
         # for autoencdoer
-        code = self._add_noise(ae_mode, code)
-        self._save_norm(ae_mode, code)
+        code = self._add_noise(noise, code)
+        self._save_norm(sv_norm, code)
 
         return code # the code!
+
+    def _check_train(self, train):
+        if train:
+            self.train()
+            self.zero_grad()
+        else:
+            self.eval()
+
+    def _gen_gauss_noise(self, size):
+        gauss_noise = torch.normal(means=torch.zeros(size),
+                                   std=self.noise_radius)
+        return to_gpu(self.cfg.cuda, Variable(gauss_noise))
+
+    def _add_noise(self, is_noise, code):
+        assert(isinstance(is_noise, bool))
+        if is_noise and self.cfg.noise_radius > 0:
+            code = code + self._gen_gauss_noise(code.size())
+        return code
+
+    def _store_grad_norm(self, grad):
+        norm = torch.norm(grad, 2, 1)
+        self.grad_norm = norm.detach().data.mean()
+        return grad
+
+    def _save_norm(self, is_sv_norm, code):
+        assert(isinstance(is_sv_norm, bool))
+        if is_sv_norm and code.requires_grad:
+            code.register_hook(self._store_grad_norm)
+
+    def _normalize_code(self, code):
+        norms = torch.norm(code, 2, 1)
+        return torch.div(code, norms.unsqueeze(1).expand_as(code))

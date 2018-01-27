@@ -14,8 +14,8 @@ dict = collections.OrderedDict
 
 def train_ae(cfg, net, batch, optimize=True):
     # forward
-    code = net.enc(batch.src, batch.len, ae_mode=True, train=True)
-    output = net.dec(code, batch.src, batch.len, ae_mode=True, train=True)
+    code = net.enc(batch.src, batch.len, noise=True, sv_norm=True, train=True)
+    output = net.dec(code, batch.src, batch.len, teacher=True, train=True)
     # output.size(): batch_size x max_len x ntokens (logits)
 
     def mask_output_target(output, target, ntokens):
@@ -62,8 +62,8 @@ def train_ae(cfg, net, batch, optimize=True):
 
 def eval_ae_tf(cfg, net, batch):
     # forward / NOTE : ae_mode off?
-    code = net.enc(batch.src, batch.len, ae_mode=False, train=False)
-    output = net.dec(code, batch.src, batch.len, ae_mode=True, train=False)
+    code = net.enc(batch.src, batch.len, noise=False, train=False)
+    output = net.dec(code, batch.src, batch.len, teacher=True, train=False)
     # output.size(): batch_size x max_len x ntokens (logits)
 
     max_value, max_indices = torch.max(output, 2)
@@ -76,8 +76,8 @@ def eval_ae_tf(cfg, net, batch):
 def eval_ae_fr(cfg, net, batch):
     # forward / NOTE : ae_mode off?
     # "real" real
-    code = net.enc(batch.src, batch.len, ae_mode=False, train=False)
-    max_ids, outputs = net.dec(code, ae_mode=False, train=False)
+    code = net.enc(batch.src, batch.len, noise=False, train=False)
+    max_ids, outputs = net.dec(code, teacher=False, train=False)
     # output.size(): batch_size x max_len x ntokens (logits)
     target = batch.tar.view(outputs.size(0), -1)
     targets = target.data.cpu().numpy()
