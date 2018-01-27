@@ -59,7 +59,7 @@ def train(net):
                     # train SampleDiscriminator
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
                         rp_ds_l_gan, rp_ds_pred, ids, attns = \
-                            train_disc_s(cfg, net, code_real, code_fake)
+                            train_disc_s(cfg, net, batch, code_real, code_fake)
                         net.optim_disc_s.step()
 
                     net.optim_enc.step()

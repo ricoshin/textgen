@@ -55,9 +55,7 @@ class Generator(nn.Module):
 
         self._init_weights()
 
-    def forward(self, z=None, train=False):
-        self._check_train(train)
-
+    def forward(self, z=None):
         if z is None:
             x = self.make_noise()
         else:
@@ -76,13 +74,6 @@ class Generator(nn.Module):
                 layer.bias.data.fill_(0)
             except:
                 pass
-
-    def _check_train(self, train):
-        if train:
-            self.train()
-            self.zero_grad()
-        else:
-            self.eval()
 
     def make_noise(self, num_samples=None):
         if num_samples is None:

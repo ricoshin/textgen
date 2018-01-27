@@ -16,11 +16,6 @@ def train_ae(cfg, net, batch):
     net.enc.zero_grad()
     net.dec.train()
     net.dec.zero_grad()
-
-def train_ae(cfg, net, batch, optimize=True):
-    # forward
-    code = net.enc(batch.src, batch.len, noise=True, sv_norm=True, train=True)
-    output = net.dec(code, batch.src, batch.len, teacher=True, train=True)
     # output.size(): batch_size x max_len x ntokens (logits)
 
     #output = ae(batch.src, batch.len, noise=True)
@@ -45,13 +40,11 @@ def train_ae(cfg, net, batch, optimize=True):
         # masked_target : num_of_masked_words
         return masked_output, masked_target
 
-    # loss & accuracy
     masked_output, masked_target = \
         mask_output_target(output, batch.tar, cfg.vocab_size)
 
     max_vals, max_indices = torch.max(masked_output, 1)
     accuracy = torch.mean(max_indices.eq(masked_target).float())
-    loss = net.dec.criterion_ce(masked_output, masked_target)
 
     loss = net.dec.criterion_ce(masked_output, masked_target)
 
@@ -106,7 +99,7 @@ def eval_ae_fr(net, batch):
 def eval_gen_dec(cfg, net, fixed_noise):
     net.gen.eval()
     net.dec.eval()
-    fake_hidden = net.gen.generate(cfg, fixed_noise, False)
+    fake_hidden = net.gen(fixed_noise)
     ids_fake, _ = net.dec.generate(fake_hidden)
     return ids_fake
 
@@ -151,11 +144,7 @@ def train_dec(cfg, net, fake_code, vocab):
     mean = pred_fake.mean()
 
     # backward
-    loss.backward(retain_graph=(not optimize))
-
-    # optimize
-    if optimize:
-        net.optim_dec.step()
+    loss.backward()
 
     return ResultPackage("Decoder_Loss",
                          dict(loss=loss.data[0], pred=mean.data[0]))
@@ -165,19 +154,13 @@ def train_gen(cfg, net):
     net.gen.train()
     net.gen.zero_grad()
 
-    noise = net.gen.make_noise(cfg)
-    fake_code = net.gen(noise)
+    fake_code = net.gen(None)
     err_g = net.disc_c(fake_code)
 
     # loss / backprop
     one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-    err_g.backward(one, retain_graph=(not optimize))
+    err_g.backward(one)
 
-    # optimize
-    if optimize:
-        net.optim_gen.step()
-
-    # result
     result = ResultPackage("Generator_Loss", dict(loss=err_g.data[0]))
 
     return result, fake_code
@@ -189,7 +172,7 @@ def generate_codes(cfg, net, batch):
     net.gen.eval()
 
     code_real = net.enc(batch.src, batch.len, noise=False)
-    code_fake = net.gen.generate(cfg, None, False)
+    code_fake = net.gen(None)
 
     return code_real, code_fake
 
@@ -224,7 +207,7 @@ def train_disc_c(cfg, net, real_hidden, fake_hidden):
         else:
             normed_grad = grad
 
-        # weight factor and sign flip (adversarial training)
+        # weight factor and sign flip
         normed_grad *= -math.fabs(cfg.gan_to_ae)
 
         return normed_grad
@@ -243,12 +226,7 @@ def train_disc_c(cfg, net, real_hidden, fake_hidden):
     # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs
     torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
 
-    # clip encoder's gradient
-    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
-    # optimize
-    if optimize:
-        net.optim_enc.step()
-        net.optim_disc_c.step()
+    err_d = -(err_d_real - err_d_fake)
 
     return ResultPackage("Code_GAN_Loss",
                dict(D_Total=err_d.data[0],
@@ -256,7 +234,7 @@ def train_disc_c(cfg, net, real_hidden, fake_hidden):
                     D_Fake=err_d_fake.data[0]))
 
 
-def train_disc_s(cfg, code_real, code_fake):
+def train_disc_s(cfg, net, batch, code_real, code_fake):
     net.dec.eval()
     net.disc_s.train()
     net.disc_s.zero_grad()

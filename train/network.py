@@ -6,7 +6,7 @@ from torch.utils.data import DataLoader
 from dataloader.book_corpus import BatchingDataset, BatchIterator
 from models.encoder import Encoder
 from models.decoder import Decoder
-from models.code_disc import CodeDiscriminator
+from models.disc_code import CodeDiscriminator
 from models.generator import Generator
 from models.disc_sample import SampleDiscriminator
 
