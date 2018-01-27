@@ -4,7 +4,8 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from dataloader.book_corpus import BatchingDataset, BatchIterator
-from models.autoencoder import Autoencoder
+from models.encoder import Encoder
+from models.decoder import Decoder
 from models.code_disc import CodeDiscriminator
 from models.generator import Generator
 from models.sample_disc import SampleDiscriminator
@@ -32,7 +33,8 @@ class Network(object):
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
         # Autoencoder
-        self.ae = Autoencoder(cfg, vocab.embed_mat)
+        self.enc = Encoder(cfg, vocab)
+        self.dec = Decoder(cfg, vocab)
         # Generator
         self.gen = Generator(ninput=cfg.z_size,
                              noutput=cfg.hidden_size,
@@ -48,19 +50,22 @@ class Network(object):
             self.disc_s = SampleDiscriminator(cfg, vocab.embed_mat)
 
         # Print network modules
-        log.info(self.ae)
+        log.info(self.enc)
+        log.info(self.dec)
         log.info(self.gen)
         log.info(self.disc_c)
         if cfg.with_attn:
             log.info(self.disc_s)
 
         # Optimizers
-        params_ae = filter(lambda p: p.requires_grad, self.ae.parameters())
+        params_enc = filter(lambda p: p.requires_grad, self.enc.parameters())
+        params_dec = filter(lambda p: p.requires_grad, self.dec.parameters())
         #params_gen = filter(lambda p: p.requires_grad, self.gen.parameters())
         #params_disc_c = filter(lambda p: p.requires_grad,
         #                       self.disc_c.parameters())
 
-        self.optim_ae = optim.SGD(params_ae, lr=cfg.lr_ae) # default: 1
+        self.optim_enc = optim.SGD(params_enc, lr=cfg.lr_ae) # default: 1
+        self.optim_dec = optim.SGD(params_dec, lr=cfg.lr_ae) # default: 1
         self.optim_gen = optim.Adam(self.gen.parameters(),
                                     lr=cfg.lr_gan_g, # default: 0.00005
                                     betas=(cfg.beta1, 0.999))
@@ -75,7 +80,8 @@ class Network(object):
                                            betas=(cfg.beta1, 0.999))
 
         if cfg.cuda:
-            self.ae = self.ae.cuda()
+            self.enc = self.enc.cuda()
+            self.dec = self.dec.cuda()
             self.gen = self.gen.cuda()
             self.disc_c = self.disc_c.cuda()
             if cfg.with_attn:

@@ -12,26 +12,17 @@ from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
-class Autoencoder(nn.Module):
-    def __init__(self, cfg, init_embed=None):
-        super(Autoencoder, self).__init__()
+class Encoder(nn.Module):
+    def __init__(self, cfg, vocab):
+        super(Encoder, self).__init__()
         self.cfg = cfg
         self.noise_radius = cfg.noise_radius
-        self.start_symbols = to_gpu(
-            cfg.cuda, Variable(torch.ones(10, 1).long()))
-
         # Vocabulary embedding
         self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
-        self.embed_dec = nn.Embedding(cfg.vocab_size, cfg.embed_size)
-
-        if (init_embed is not None) and cfg.load_glove:
-            self.embed.weight.data.copy_(torch.from_numpy(init_embed))
-            self.embed_dec.weight.data.copy_(torch.from_numpy(init_embed))
-
+        self.embed.weight.data.copy_(torch.from_numpy(vocab.embed_mat))
         if cfg.load_glove and cfg.fix_embed:
             self.embed.weight.requires_grad = False
-            self.embed_dec.weight.requires_grad = False
-
+            
         # RNN Encoder and Decoder
         self.encoder = nn.LSTM(input_size=cfg.embed_size,
                                hidden_size=cfg.hidden_size,
@@ -39,20 +30,7 @@ class Autoencoder(nn.Module):
                                dropout=cfg.dropout,
                                batch_first=True)
 
-        decoder_input_size = cfg.embed_size + cfg.hidden_size
-        self.decoder = nn.LSTM(input_size=decoder_input_size,
-                               hidden_size=cfg.hidden_size,
-                               num_layers=1,
-                               dropout=cfg.dropout,
-                               batch_first=True)
-
-        # Initialize Linear Transformation
-        self.linear = nn.Linear(cfg.hidden_size, cfg.vocab_size)
-
-        self.criterion_ce = nn.CrossEntropyLoss()
-
-        self.init_weights()
-
+        self._init_weights()
 
     def init_weights(self):
         # unifrom initialization in the range of [-0.1, 0.1]
@@ -61,40 +39,16 @@ class Autoencoder(nn.Module):
         # Initialize Vocabulary Matrix Weight
         if not self.cfg.load_glove:
             self.embed.weight.data.uniform_(-initrange, initrange)
-            self.embed_dec.weight.data.uniform_(-initrange, initrange)
         # by default it's initialized with normal_(0,1)
 
         # Initialize Encoder and Decoder Weights
         for p in self.encoder.parameters():
             p.data.uniform_(-initrange, initrange)
-        for p in self.decoder.parameters():
-            p.data.uniform_(-initrange, initrange)
 
-        # Initialize Linear Weight
-        self.linear.weight.data.uniform_(-initrange, initrange)
-        self.linear.bias.data.fill_(0)
-
-    def init_hidden(self, bsz):
-        nlayers = self.cfg.nlayers
-        nhidden = self.cfg.hidden_size
-        zeros1 = Variable(torch.zeros(nlayers, bsz, nhidden))
-        zeros2 = Variable(torch.zeros(nlayers, bsz, nhidden))
-        return (to_gpu(self.cfg.cuda, zeros1), to_gpu(self.cfg.cuda, zeros2))
-
-    def init_state(self, bsz):
-        zeros = Variable(torch.zeros(self.cfg.nlayers, bsz, self.cfg.nhidden))
-        return to_gpu(self.cfg.cuda, zeros)
-
-    def store_enc_grad_norm(self, grad):
+    def store_grad_norm(self, grad):
         norm = torch.norm(grad, 2, 1)
-        self.enc_grad_norm = norm.detach().data.mean()
+        self.grad_norm = norm.detach().data.mean()
         # use this when compute disc_c's gradient (register_hook)
-        return grad
-
-    def store_dec_grad_norm(self, grad):
-        norm = torch.norm(grad, 2, 1)
-        self.dec_grad_norm = norm.detach().data.mean()
-        # use this when compute disc_s's gradient (register_hook)
         return grad
 
     def forward(self, indices, lengths, noise, encode_only=False):
@@ -107,14 +61,10 @@ class Autoencoder(nn.Module):
 
         if hidden.requires_grad:
             hidden.register_hook(self.store_enc_grad_norm)
-            #log.debug("Encoder gradient norm has been saved.")
 
-        decoded = self._decode(hidden, batch_size, maxlen,
-                              indices=indices, lengths=lengths)
+        return hidden
 
-        return decoded
-
-    def _encode(self, indices, lengths, noise):
+    def forward(self, indices, lengths, noise):
         # indices.size() : batch_size x max(lengths) [Variable]
         # len(lengths) : batch_size [List]
         embeddings = self.embed(indices)
@@ -136,7 +86,85 @@ class Autoencoder(nn.Module):
                                        std=self.noise_radius)
             hidden = hidden + to_gpu(self.cfg.cuda, Variable(gauss_noise))
 
+
+            #log.debug("Encoder gradient norm has been saved.")
+
         return hidden # batch_size x hidden_size
+
+    def encode_only(self, cfg, batch, train=True):
+        if train:
+            self.train()
+            self.zero_grad()
+        else:
+            self.eval()
+        # when encode_only is True:
+        #   encoded hidden states (batch_size x hidden_size) are returned
+        real_hidden = self(batch.src, batch.len, noise=False, encode_only=True)
+        return real_hidden
+
+
+class Decoder(nn.Module):
+    def __init__(self, cfg, init_embed=None):
+        super(Decoder, self).__init__()
+        self.start_symbols = to_gpu(
+            cfg.cuda, Variable(torch.ones(10, 1).long()))
+        # Vocabulary embedding
+        self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
+        decoder_input_size = cfg.embed_size + cfg.hidden_size
+        self.decoder = nn.LSTM(input_size=decoder_input_size,
+                               hidden_size=cfg.hidden_size,
+                               num_layers=1,
+                               dropout=cfg.dropout,
+                               batch_first=True)
+
+        # Initialize Linear Transformation
+        self.linear = nn.Linear(cfg.hidden_size, cfg.vocab_size)
+        self.criterion_ce = nn.CrossEntropyLoss()
+        self._init_weights()
+
+    def init_weights(self):
+        # unifrom initialization in the range of [-0.1, 0.1]
+        initrange = 0.1
+
+        # Initialize Vocabulary Matrix Weight
+        if not self.cfg.load_glove:
+            self.embed.weight.data.uniform_(-initrange, initrange)
+        # by default it's initialized with normal_(0,1)
+
+        # Initialize Encoder and Decoder Weights
+        for p in self.decoder.parameters():
+            p.data.uniform_(-initrange, initrange)
+
+        # Initialize Linear Weight
+        self.linear.weight.data.uniform_(-initrange, initrange)
+        self.linear.bias.data.fill_(0)
+
+    def init_hidden(self, bsz):
+        nlayers = self.cfg.nlayers
+        nhidden = self.cfg.hidden_size
+        zeros1 = Variable(torch.zeros(nlayers, bsz, nhidden))
+        zeros2 = Variable(torch.zeros(nlayers, bsz, nhidden))
+        return (to_gpu(self.cfg.cuda, zeros1), to_gpu(self.cfg.cuda, zeros2))
+
+    def init_state(self, bsz):
+        zeros = Variable(torch.zeros(self.cfg.nlayers, bsz, self.cfg.nhidden))
+        return to_gpu(self.cfg.cuda, zeros)
+
+
+    def store_grad_norm(self, grad):
+        norm = torch.norm(grad, 2, 1)
+        self.grad_norm = norm.detach().data.mean()
+        # use this when compute disc_s's gradient (register_hook)
+        return grad
+
+
+    def forward(self, indices, lengths, noise, encode_only=False):
+        batch_size, maxlen = indices.size()
+
+        decoded = self._decode(hidden, batch_size, maxlen,
+                              indices=indices, lengths=lengths)
+
+        return decoded
 
     def _decode(self, hidden, batch_size, maxlen, indices=None, lengths=None):
         # batch x hidden
@@ -169,17 +197,6 @@ class Autoencoder(nn.Module):
         decoded = decoded.view(batch_size, maxlen, self.cfg.vocab_size)
 
         return decoded # decoded.size() : batch x max_len x ntokens [logits]
-
-    def encode_only(self, cfg, batch, train=True):
-        if train:
-            self.train()
-            self.zero_grad()
-        else:
-            self.eval()
-        # when encode_only is True:
-        #   encoded hidden states (batch_size x hidden_size) are returned
-        real_hidden = self(batch.src, batch.len, noise=False, encode_only=True)
-        return real_hidden
 
     def decode_only(self, cfg, hidden, vocab, train=True):
         if train:

@@ -24,7 +24,8 @@ class Supervisor(object):
         self.gan_niter = self.gan_schedule[0]
 
         self.step_fname = path.join(self.cfg.log_dir, 'schedule.json')
-        self.ae_fname = path.join(self.cfg.log_dir, 'ae.ckpt')
+        self.enc_fname = path.join(self.cfg.log_dir, 'enc.ckpt')
+        self.dec_fname = path.join(self.cfg.log_dir, 'dec.ckpt')
         self.gen_fname = path.join(self.cfg.log_dir, 'gen.ckpt')
         self.disc_c_fname = path.join(self.cfg.log_dir, 'disc_c.ckpt')
         if self.cfg.with_attn:
@@ -84,8 +85,10 @@ class Supervisor(object):
 
     def _save_model(self):
         log_dir = self.cfg.log_dir
-        with open(self.ae_fname, 'wb') as f:
-            torch.save(self.net.ae.state_dict(), f)
+        with open(self.enc_fname, 'wb') as f:
+            torch.save(self.net.enc.state_dict(), f)
+        with open(self.dec_fname, 'wb') as f:
+            torch.save(self.net.dec.state_dict(), f)
         with open(self.gen_fname, 'wb') as f:
             torch.save(self.net.gen.state_dict(), f)
         with open(self.disc_c_fname, 'wb') as f:
@@ -95,7 +98,8 @@ class Supervisor(object):
                 torch.save(self.net.disc_s.state_dict(), f)
 
     def _load_model(self):
-        self.net.ae.load_state_dict(torch.load(self.ae_fname))
+        self.net.enc.load_state_dict(torch.load(self.enc_fname))
+        self.net.dec.load_state_dict(torch.load(self.dec_fname))
         self.net.gen.load_state_dict(torch.load(self.gen_fname))
         self.net.disc_c.load_state_dict(torch.load(self.disc_c_fname))
         if self.cfg.with_attn:
