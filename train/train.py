@@ -9,14 +9,10 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from models.autoencoder import Autoencoder
-from models.disc_code import CodeDiscriminator
-from models.generator import Generator
-from models.disc_sample import SampleDiscriminator
-
 from test.evaluate import evaluate_sents
 from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
-                                train_gen, train_disc_c, train_disc_s)
+                                train_gen, train_disc_c, train_disc_s,
+                                generate_codes, eval_gen_dec)
 from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
                                 print_ae_fr_sents, print_gen_sents,
                                 ids_to_sent_for_eval, halve_attns, print_attns)
@@ -44,6 +40,8 @@ def train(net):
                     break  # end of epoch
                 batch = net.data_ae.next()
                 rp_ae = train_ae(cfg, net, batch)
+                net.optim_enc.step()
+                net.optim_dec.step()
                 sv.inc_batch_step()
 
             # train gan
@@ -54,59 +52,48 @@ def train(net):
                     batch = net.data_gan.next()
 
                     # train CodeDiscriminator
-                    code_real = net.enc(batch.src, batch.len, train=True)
-                    code_fake = net.gen(train=False)
+                    code_real, code_fake = generate_codes(cfg, net, batch)
                     rp_dc = train_disc_c(cfg, net, code_real, code_fake)
+                    #err_dc_total, err_dc_real, err_dc_fake = err_dc
 
                     # train SampleDiscriminator
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        ids_real, outs_real = net.dec(code_real, train=False)
-                        ids_fake, outs_fake = net.dec(code_fake, train=False)
+                        rp_ds_l_gan, rp_ds_pred, ids, attns = \
+                            train_disc_s(cfg, net, code_real, code_fake)
+                        net.optim_disc_s.step()
 
-                        if cfg.disc_s_in == 'embed':
-                            # "real" fake
-                            outs_fake = torch.cat([outs_real, outs_fake], dim=0)
-                            code_fake = torch.cat([code_real, code_fake], dim=0)
-                            # "real" real
-                            outs_real = batch.tar.view(cfg.batch_size, -1)
-                            outs_real = append_pads(cfg, outs_real, net.vocab)
-                            #outs_real = batch.tar.view(cfg.batch_size, -1)
-
-                        rp_ds_l_gan, rp_ds_l_rec, rp_ds_pred, attns = \
-                            train_disc_s(cfg, net, outs_real, outs_fake,
-                                         code_real, code_fake)
+                    net.optim_enc.step()
+                    net.optim_disc_c.step()
 
                 # train generator(with disc_c) / decoder(with disc_s)
                 for i in range(cfg.niters_gan_g): # default: 1
-                    rp_gen, code_fake = train_gen(cfg, net, optimize=False)
-
+                    rp_gen, code_fake = train_gen(cfg, net)
+                    net.optim_gen.step()
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        rp_dec = train_dec(cfg, net, code_fake)
-
-                    net.optim_gen.step() # for retaining graph
-
-            # exponentially decaying noise on autoencoder
-            if sv.batch_step % cfg.anneal_step == 0:
-                # noise_raius = 0.2(default) / noise_anneal = 0.995(default)
-                net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
+                        rp_dec = train_dec(cfg, net, code_fake, net.vocab)
+                        net.optim_dec.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
                 continue
 
+            # exponentially decaying noise on autoencoder
+            # noise_raius = 0.2(default)
+            # noise_anneal = 0.995(default) NOTE: fix this!
+            net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
+
             # Autoencoder
             batch = net.data_eval.next()
-            # NOTE fix later! merge these two
-            tars_tf, outs_tf = eval_ae_tf(cfg, net, batch) # teacher forcing
-            print_ae_tf_sents(net.vocab, tars_tf, outs_tf, batch.len, cfg.log_nsample)
-            tars_fr, outs_fr = eval_ae_fr(cfg, net, batch) # free running
-            print_ae_fr_sents(net.vocab, tars_fr, outs_fr, cfg.log_nsample)
-            #import ipdb; ipdb.set_trace()
+            tars, outs = eval_ae_tf(net, batch)
+            print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+            tars, outs = eval_ae_fr(net, batch)
+            print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
+
             # dump results
             rp_ae.drop_log_and_events(sv, writer)
+            #print_ae_sents(net.vocab, tar)
 
             # Generator + Discriminator_c
-            fake_code = net.gen(fixed_noise, train=False)
-            ids_fake_eval, _ = net.dec(fake_code, train=False)
+            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
 
             # dump results
             rp_dc.update(dict(G=rp_gen.loss)) # NOTE : mismatch
@@ -123,6 +110,7 @@ def train(net):
                 rp_ds_pred.drop_log_and_events(sv, writer, False)
 
                 a_real, a_fake = attns
+                ids_real, ids_fake = ids
                 ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
                 a_fake_r, a_fake_f = halve_attns(a_fake)
                 print_attns(cfg, net.vocab,
