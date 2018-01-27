@@ -14,11 +14,11 @@ from models.generator import Generator
 from models.sample_disc import SampleDiscriminator
 
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
-                                train_disc_c, train_disc_s)
-from train.train_helper import (load_test_data, append_pads, print_ae_sents,
-                                print_gen_sents, ids_to_sent_for_eval,
-                                halve_attns, print_attns)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
+                                train_gen, train_disc_c, train_disc_s)
+from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+                                print_ae_fr_sents, print_gen_sents,
+                                ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
@@ -107,10 +107,14 @@ def train(net):
 
             # Autoencoder
             batch = net.data_eval.next()
-            tars, outs = eval_ae(cfg, net.ae, batch)
+            tars, outs = eval_ae_tf(cfg, net.ae, batch)
+            print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+            tars, outs = eval_ae_fr(cfg, net.ae, batch, net.vocab)
+            print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
+
             # dump results
             rp_ae.drop_log_and_events(sv, writer)
-            print_ae_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+            #print_ae_sents(net.vocab, tar)
 
             # Generator + Discriminator_c
             fake_hidden = net.gen.generate(cfg, fixed_noise, False)

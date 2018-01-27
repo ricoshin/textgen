@@ -49,7 +49,7 @@ def train_ae(cfg, ae, batch):
                          dict(Loss=loss.data, Accuracy=accuracy.data[0]))
 
 
-def eval_ae(cfg, ae, batch):
+def eval_ae_tf(cfg, ae, batch):
     ae.eval()
     # output.size(): batch_size x max_len x ntokens (logits)
     output = ae(batch.src, batch.len, noise=True)
@@ -60,6 +60,18 @@ def eval_ae(cfg, ae, batch):
     targets = target.data.cpu().numpy()
 
     return targets, outputs
+
+
+def eval_ae_fr(cfg, ae, batch, vocab):
+    ae.eval()
+    # output.size(): batch_size x max_len x ntokens (logits)
+    code = ae.encode_only(cfg, batch, train=False)
+    max_ids, outs = ae.decode_only(cfg, code, vocab, train=False)
+
+    targets = batch.tar.view(outs.size(0), -1)
+    targets = targets.data.cpu().numpy()
+
+    return targets, max_ids
 
 
 def train_dec(cfg, ae, disc_s, fake_code, vocab):
