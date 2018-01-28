@@ -12,8 +12,7 @@ log = logging.getLogger('main')
 
 
 class CodeDiscriminator(nn.Module):
-    def __init__(self, ninput, noutput, layers,
-                 activation=nn.LeakyReLU(0.2), gpu=False):
+    def __init__(self, cfg):
         super(CodeDiscriminator, self).__init__()
         # arguments default values
         #   ninput: args.nhidden=300
@@ -21,11 +20,12 @@ class CodeDiscriminator(nn.Module):
         #   layers: arch_d: 300-300
 
         # nhidden(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- 1(out)
-        self.ninput = ninput # 300(nhidden)
-        self.noutput = noutput # 1
-        self.gpu = gpu
+        self.cfg = cfg
+        ninput = cfg.hidden_size # 300(nhidden)
+        noutput = 1
 
-        layer_sizes = [ninput] + [int(x) for x in layers.split('-')]
+        activation = nn.LeakyReLU(0.2)
+        layer_sizes = [ninput] + [int(x) for x in cfg.arch_d.split('-')]
         # [nhidden(300), 300, 300]
         self.layers = []
 
@@ -61,15 +61,17 @@ class CodeDiscriminator(nn.Module):
         #   (layer3): Linear(in_features=300, out_features=1)
         # )
 
-        self.init_weights()
+        self._init_weights()
 
-    def forward(self, x):
+    def forward(self, x, train=False):
+        self._check_train(train)
+
         for i, layer in enumerate(self.layers):
             x = layer(x)
         x = torch.mean(x)
         return x
 
-    def init_weights(self):
+    def _init_weights(self):
         init_std = 0.02
         for layer in self.layers:
             try:
@@ -77,3 +79,10 @@ class CodeDiscriminator(nn.Module):
                 layer.bias.data.fill_(0)
             except:
                 pass
+
+    def _check_train(self, train):
+        if train:
+            self.train()
+            self.zero_grad()
+        else:
+            self.eval()
