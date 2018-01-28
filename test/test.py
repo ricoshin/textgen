@@ -27,6 +27,7 @@ from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
                                 load_test_data
 
 from test.bleu_variation import leakgan_bleu, urop_bleu
+from test.rouge import corp_rouge
 """
 This function is for test session.
 In test session, training is not performed.
@@ -55,7 +56,7 @@ def test(net):
     nbatch = sv.batch_step
     niter = sv.global_step
     print('epoch {}, nbatch {}, niter {}. \033[1;34m'.format(epoch, nbatch, niter)) # add color
-    
+
     # get the number of batch size(num_samples)
     print('default batch size:', cfg.batch_size)
     batch_size = int(input("enter batch size(quit:0):")) # to quit test session, enter 0
@@ -107,6 +108,8 @@ def test(net):
         rp_scores = evaluate_sents(test_sents, fake_sents)
 
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
+            rouge = copr_rouge(references = test_sents, hypotheses=fake_sents)
+            testlog.info('Eval/Rouge: '+str(rouge))
             bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)
             testlog.info('Eval/bleu-1: '+str(bleu1))
             bleu2 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=2)

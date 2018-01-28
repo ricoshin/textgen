@@ -199,17 +199,22 @@ def train(net):
                     hypotheses=fake_sents, gram=4)
                 log.info('nltk bleu-{}: {}'.format(4, bleu))
 
-                leakgan = leakgan_bleu(test_sents[:min(len(fake_sents)*50, len(test_sents))], fake_sents)
-                urop = urop_bleu(test_sents[:min(len(fake_sents)*50, len(test_sents))], fake_sents)
-                log.info('leakgan_bleu: '+str(leakgan))
-                log.info('urop_bleu: '+str(urop))
                 ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
                     vocab = net.vocab,
                     save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, sv.batch_step),
                     n = cfg.N)
                 log.info("Perplexity {}".format(ppl))
+                rouge = copr_rouge(references = test_sents, hypotheses=fake_sents)
+                log.info('Eval/Rouge: '+str(rouge))
+                writer.add_scalar('Eval/4_rouge', rouge, sv.global_step)
                 writer.add_scalar('Eval/5_nltk_Bleu', bleu, sv.global_step)
                 writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, sv.global_step)
+
+                # leakgan, urop bleu
+                leakgan = leakgan_bleu(test_sents[:min(len(fake_sents)*50, len(test_sents))], fake_sents)
+                urop = urop_bleu(test_sents[:min(len(fake_sents)*50, len(test_sents))], fake_sents)
+                log.info('leakgan_bleu: '+str(leakgan))
+                log.info('urop_bleu: '+str(urop))
                 writer.add_scalar('Eval/7_leakgan_bleu2', leakgan[0], sv.global_step)
                 writer.add_scalar('Eval/7_leakgan_bleu3', leakgan[1], sv.global_step)
                 writer.add_scalar('Eval/7_leakgan_bleu4', leakgan[2], sv.global_step)
