@@ -1,25 +1,24 @@
+import collections
 import logging
 import numpy as np
 import os
 import time
-from datetime import datetime
 
+from tensorboardX import SummaryWriter
 import torch
 import torch.nn as nn
-
-from models.autoencoder import Autoencoder
-from models.code_disc import CodeDiscriminator
-from models.generator import Generator
-from models.sample_disc import SampleDiscriminator
+from torch.autograd import Variable
 
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
-                                train_disc_c, train_disc_s)
-from train.train_helper import (load_test_data, append_pads, print_ae_sents,
-                                print_gen_sents, ids_to_sent_for_eval,
-                                halve_attns, print_attns)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
+                                train_gen, train_disc_c, train_disc_s,
+                                generate_codes, eval_gen_dec)
+from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+                                print_ae_fr_sents, print_gen_sents,
+                                ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu, set_logger
+from datetime import datetime
 
 from test.evaluate_nltk import truncate, corp_bleu
 from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
@@ -28,6 +27,8 @@ from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
 
 from test.bleu_variation import leakgan_bleu, urop_bleu
 from test.rouge import corp_rouge
+
+dict = collections.OrderedDict
 """
 This function is for test session.
 In test session, training is not performed.
@@ -48,8 +49,8 @@ def test(net):
 
     # exponentially decaying noise on autoencoder
     # noise_raius = 0.2(default)
-    # noise_anneal = 0.995(default)
-    net.ae.noise_radius = net.ae.noise_radius * cfg.noise_anneal
+    # noise_anneal = 0.995(default) NOTE: fix this!
+    net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
     #print status of data that is being used
     epoch = sv.epoch_step
@@ -72,16 +73,16 @@ def test(net):
         ae_num = int(input("enter the number of AE sample(quit:0):")) # to quit test session, enter 0
         if ae_num == 0:
             break
+
         # Autoencoder
         batch = net.data_eval.next()
-        tars, outs = eval_ae(cfg, net.ae, batch)
-        # dump results
-        print_ae_sents(net.vocab, tars, outs, batch.len, ae_num)
+        tars, outs = eval_ae_tf(net, batch)
+        print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+        tars, outs = eval_ae_fr(net, batch)
+        print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
 
         # Generator + Discriminator_c
-        fake_hidden = net.gen.generate(cfg, fixed_noise, False)
-        ids_fake_eval, _ = net.ae.decode_only(cfg, fake_hidden,
-                                              net.vocab, False)
+        ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
 
         #get the number of output sentence from Generator
         gen_num = int(input("enter the number of generator sample(quit:0):"))
@@ -94,12 +95,14 @@ def test(net):
         """
         if cfg.with_attn:
             a_real, a_fake = attns
-            ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
+            ids_real, ids_fake = ids
+            ids_fake_r = ids_fake[len(ids_fake)//2:]
+            ids_fake_f = ids_fake[:len(ids_fake)//2]
             a_fake_r, a_fake_f = halve_attns(a_fake)
             print_attns(cfg, net.vocab,
-                        dict(Real=(ids_tar, a_real),
-                             Fake_R=(ids_real, a_fake_r),
-                             Fake_F=(ids_fake, a_fake_f)))
+                        dict(Real=(ids_real, a_real),
+                             Fake_R=(ids_fake_r, a_fake_r),
+                             Fake_F=(ids_fake_f, a_fake_f)))
         """
         fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
 
@@ -108,7 +111,7 @@ def test(net):
         rp_scores = evaluate_sents(test_sents, fake_sents)
 
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
-            rouge = copr_rouge(references = test_sents, hypotheses=fake_sents)
+            rouge = corp_rouge(references = test_sents, hypotheses=fake_sents)
             testlog.info('Eval/Rouge: '+str(rouge))
             bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)
             testlog.info('Eval/bleu-1: '+str(bleu1))
