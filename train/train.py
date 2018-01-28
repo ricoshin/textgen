@@ -58,7 +58,7 @@ def train(net):
 
                     # train SampleDiscriminator
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        rp_ds_l_gan, rp_ds_pred, ids, attns = \
+                        rp_ds_loss, rp_ds_pred, ids, attns = \
                             train_disc_s(cfg, net, batch, code_real, code_fake)
                         net.optim_disc_s.step()
 
@@ -102,10 +102,8 @@ def train(net):
 
             # Discriminator_s
             if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                rp_ds_l_gan.update(dict(G_Dec=rp_dec.loss))
-                rp_ds_l_gan.drop_log_and_events(sv, writer)
-                rp_ds_l_rec.drop_log_and_events(sv, writer, False)
-
+                rp_ds_loss.update(dict(G_Dec=rp_dec.loss))
+                rp_ds_loss.drop_log_and_events(sv, writer)
                 rp_ds_pred.update(dict(G_Dec=rp_dec.pred))
                 rp_ds_pred.drop_log_and_events(sv, writer, False)
 
