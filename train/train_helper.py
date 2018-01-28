@@ -215,8 +215,9 @@ def print_attns(cfg, vocab, id_attn_pair):
         #import ipdb; ipdb.set_trace()
         attns_w = mark_empty_attn_w(attns_w, cfg.max_len + 1)
         attns_w, attns_l = batch_first_attns([attns_w, attns_l])
-
-        for i, sent_wise in enumerate(zip(bat_ids, attns_w, attns_l)):
+        coupled = list(zip(bat_ids, attns_w, attns_l))
+        np.random.shuffle(coupled)
+        for i, sent_wise in enumerate(coupled):
             # sentenwise in a batch
             ids, attns_w, attns_l = sent_wise
             if i > sample_num - 1: break

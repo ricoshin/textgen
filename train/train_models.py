@@ -130,7 +130,7 @@ def train_dec(cfg, net, fake_code, vocab):
     net.dec.logits.register_hook(grad_hook)
 
     # loss
-    _, pred_fake, attn_fake = net.disc_s(fake_outs)
+    pred_fake, attn_fake = net.disc_s(fake_outs)
     label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_fake.size())))
     loss = net.disc_s.criterion_bce(pred_fake, label_real)
 
@@ -249,8 +249,8 @@ def train_disc_s(cfg, net, batch, code_real, code_fake):
         p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
         # WGAN clamp (default:0.01)
 
-    rec_real, pred_real, attn_real = net.disc_s(ids_real.detach())
-    rec_fake, pred_fake, attn_fake = net.disc_s(outs_fake.detach())
+    pred_real, attn_real = net.disc_s(ids_real.detach())
+    pred_fake, attn_fake = net.disc_s(outs_fake.detach())
 
     # GAN loss
     label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
