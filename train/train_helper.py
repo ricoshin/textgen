@@ -238,7 +238,7 @@ def print_attns(cfg, vocab, id_attn_pair):
 
 def load_test_data(cfg):
     test_sents = []
-    with open(os.path.join(cfg.data_dir, 'test.txt')) as f:
+    with open(cfg.test_filepath) as f:
         for line in f:
             test_sents.append(line.strip())
     return test_sents

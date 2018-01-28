@@ -22,6 +22,10 @@ def train_ngram_lm(kenlm_path, data_path, output_path, N):
 
     load_kenlm()
     # create language model
+    statinfo = os.stat(output_path)
+    if statinfo.st_size < 1:
+        print('.arpa file size is 0 or too small')
+        return None
     model = kenlm.Model(output_path)
 
     return model

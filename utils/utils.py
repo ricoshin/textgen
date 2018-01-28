@@ -58,7 +58,7 @@ class Config(object):
         return self.__dict__.__repr__()
 
 
-def set_logger(cfg):
+def set_logger(cfg, name = 'main'):
     #log_fmt = '%(asctime)s %(levelname)s %(message)s'
     #date_fmt = '%d/%m/%Y %H:%M:%S'
     #formatter = logging.Formatter(log_fmt, datefmt=date_fmt)
@@ -77,8 +77,6 @@ def set_logger(cfg):
 
 
     # setup file handler
-    if cfg.test == True:
-        cfg.log_filepath = cfg.testlog_filepath
     file_handler = logging.FileHandler(cfg.log_filepath)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(log_level)
@@ -89,7 +87,7 @@ def set_logger(cfg):
     stream_handler.setLevel(log_level)
 
     # get logger
-    logger = logging.getLogger('main')
+    logger = logging.getLogger(name)
     logger.setLevel(log_level)
 
     # add file & stdio handler to logger
@@ -104,7 +102,6 @@ def prepare_paths(cfg):
     len_postfix = "_%d_%d" % (cfg.min_len, cfg.max_len)
     cfg.prepro_dir += (name_postfix + len_postfix)
     cfg.log_filepath = os.path.join(cfg.log_dir, "log.txt")
-    cfg.testlog_filepath = os.path.join(cfg.log_dir, "testlog.txt")
 
     if cfg.small:
         cfg.embed_size = 50
@@ -156,3 +153,4 @@ def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
     return var
+

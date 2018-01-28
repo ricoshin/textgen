@@ -41,13 +41,13 @@ class MultiLinear4D(nn.Module):
 
 
 class WordAttention(nn.Module):
-    def __init__(self, in_chann, in_width, out_size, n_attns, temp=1.,
+    def __init__(self, cfg, in_chann, in_width, out_size, n_attns, temp=1.,
                  last_act='softmax'):
         super(WordAttention, self).__init__()
         # in_height.size() : [bsz, ch, 1, w]
-        assert(last_act in ['sigmoid', 'softmax', 'sparsemax'])
+        #assert(last_act in ['sigmoid', 'softmax', 'sparsemax'])
         self.temp = temp
-        self.last_act = last_act
+        self.last_act = cfg.word_act
         self.attn_layers = []
 
         # attention layer

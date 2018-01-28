@@ -62,7 +62,7 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_to_ae', type=float, default=-0.01,
+parser.add_argument('--gan_toenc', type=float, default=-0.01,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--dropout', type=float, default=0.0,
                     help='dropout applied to layers (0 = no dropout)')
@@ -117,16 +117,6 @@ parser.add_argument('--disc_s_hold', type=int, default=1,
                     help='num of initial epochs not training train disc_s')
 parser.add_argument('--fix_embed', type=str2bool, default=True,
                     help='pretain embedding matrix weights (not trainable)')
-parser.add_argument('--word_temp', type=float, default=1e-2,
-                    help='softmax temperature for wordwise attention')
-parser.add_argument('--layer_temp', type=float, default=1e-2,
-                    help='softmax temperature for layerwise attention')
-parser.add_argument('--anneal_step', type=int, default=200,
-                    help='autoencdoer noise annealing interval')
-
-parser.add_argument('--word_act', type=str, default='softmax', 
-                    choices=['softmax', 'sigmoid', 'sparsemax'], 
-                    help='word attention activation function')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',
@@ -135,6 +125,10 @@ parser.add_argument('--N', type=int, default=5,
                     help='N-gram order for training n-gram language model')
 parser.add_argument('--log_interval', type=int, default=200,
                     help='interval to log autoencoder training results')
+
+# Test Arguments
+parser.add_argument('--test', action='store_true', help='enter test session')
+parser.add_argument('--test_log_dir', default="testlog.txt")
 
 # Other
 parser.add_argument('--small', action='store_true') # just for debugging
