@@ -5,7 +5,7 @@ import os
 import pickle
 from tqdm import tqdm
 
-from dataloader.multi_proc import LargeFileMultiProcessor
+from loader.multi_proc import LargeFileMultiProcessor
 
 log = logging.getLogger('main')
 

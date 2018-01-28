@@ -58,7 +58,8 @@ class WordAttention(nn.Module):
         if last_act == 'sparsemax':
             self.sparsemax = Sparsemax(1, in_width)
         # compression layer (over multiple attention)
-        self.comp_layer = MultiLinear4D(in_width, 1, dim=3, n_layers=2)
+        # self.comp_layer = MultiLinear4D(in_width, 1, dim=3, n_layers=2)
+        self.pool_layer = nn.MaxPool2d((1, in_width))
         # matching layer (for same dimension output)
         self.match_layer = MultiLinear4D(in_chann, out_size, dim=1, n_layers=1)
 
@@ -89,7 +90,8 @@ class WordAttention(nn.Module):
         # weighted feature
         x = x * weight.expand_as(x) # [bsz, ch, 1, w]
         # compression layer
-        x = self.comp_layer(x) # [bsz, ch, 1, 1]
+        #x = self.comp_layer(x) # [bsz, ch, 1, 1]
+        x = self.pool_layer(x) # [bsz, ch, 1, 1]
         # dimension matching layer
         x = self.match_layer(x) # [bsz, out_size, 1, 1]
 

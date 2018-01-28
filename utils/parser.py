@@ -62,7 +62,7 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_toenc', type=float, default=-0.01,
+parser.add_argument('--gan_to_ae', type=float, default=-0.01,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--dropout', type=float, default=0.0,
                     help='dropout applied to layers (0 = no dropout)')
@@ -125,7 +125,8 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
 parser.add_argument('--word_act', type=str, default='softmax', 
                     choices=['softmax', 'sigmoid', 'sparsemax'], 
                     help='word attention activation function')
-
+parser.add_argument('--anneal_step', type=int, default=200,
+                    help='autoencdoer noise annealing interval')
 # Test
 parser.add_argument('--test', action='store_true', help='run test mode')
 parser.add_argument('--test_log_dir', type=str, default='testlog.txt', help='output test log file')

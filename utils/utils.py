@@ -98,7 +98,9 @@ def set_logger(cfg, name = 'main'):
 def prepare_paths(cfg):
     cfg.log_dir = os.path.join(cfg.out_dir, cfg.name)
     cfg.data_dir = os.path.join(cfg.data_dir, cfg.data_name)
-    cfg.prepro_dir += ("_" + cfg.data_name)
+    name_postfix = "_%s" % cfg.data_name
+    len_postfix = "_%d_%d" % (cfg.min_len, cfg.max_len)
+    cfg.prepro_dir += (name_postfix + len_postfix)
     cfg.log_filepath = os.path.join(cfg.log_dir, "log.txt")
 
     if cfg.small:
@@ -107,11 +109,13 @@ def prepare_paths(cfg):
     if cfg.data_name == "books":
         if cfg.small:
             cfg.prepro_dir += "_small"
-            cfg.train_filepath = os.path.join(cfg.data_dir, "books_100k.txt")
-            cfg.test_filepath = os.path.join(cfg.data_dir, "books_10_20_random_10k.txt")
+            filename = "books_100k.txt"
+            cfg.train_filepath = os.path.join(cfg.data_dir, filename)
+            cfg.test_filepath = None
         else:
-            cfg.train_filepath = [os.path.join(cfg.data_dir, "books_large_p1.txt"), 
-                    os.path.join(cfg.data_dir, "books_large_p2.txt")]
+            filenames = ["books_large_p1.txt", "books_large_p2.txt"]
+            cfg.train_filepath = \
+                [*map(lambda fn: os.path.join(cfg.data_dir, fn), filenames)]
             cfg.test_filepath = os.path.join(cfg.data_dir, "books_1500k_random.txt")
 
     elif cfg.data_name == "snli":
@@ -123,7 +127,6 @@ def prepare_paths(cfg):
 
     cfg.data_filepath = os.path.join(cfg.prepro_dir, "data.txt")
     cfg.vocab_filepath = os.path.join(cfg.prepro_dir, "vocab.pickle")
-
 
     if not os.path.exists(cfg.data_dir):
         raise Exception("can't find data_dir: %s" % cfg.data_dir)
