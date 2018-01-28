@@ -30,13 +30,21 @@ def truncate(sent):
         text = text.replace('<eos>', '')
         while text.find('<unk>') != -1:
             text = text.replace('<unk>', '')
+        while text.find('<pad>') != -1:
+            text = text.replace('<pad>', '')
+        text = text.strip()
+        return text
+    
+    def remove_dot(text):
+        while text.find('.') != -1:
+            text = text.replace('.', '')
         text = text.strip()
         return text
 
     def lower(text):
         return text.lower()
 
-    return remove_punc(remove_token(lower(sent))).split()
+    return remove_punc(remove_token(remove_dot(lower(sent)))).split()
 
 # hypotheses : ["sentence", "sentence", ...]
 # references : ["sentence", "sentence", ...]
@@ -55,8 +63,7 @@ def corp_bleu(references, hypotheses, gram=0, isSmooth=False):
         smooth = SmoothingFunction().method3
 
     if gram != 0:
-        w = [0]*4
-        w[gram-1] = 1
+        w = [1/gram]*gram # cumulative n-gram bleu weight
         # reference : [["sent", "sent", ...], ["sent", "sent", ...], ...]
         return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False, smoothing_function=smooth)
     else:
@@ -86,8 +93,7 @@ def corp_to_sent_bleu(reference, hypothesis, gram=0, isSmooth=False):
         smooth = SmoothingFunction().method3
 
     if gram != 0:
-        w = [0]*4
-        w[gram-1] = 1
+        w = [1/gram]*gram
         # reference : ["sent", "sent", ...]
         return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False, smoothing_function=smooth)
     else:

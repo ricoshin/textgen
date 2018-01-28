@@ -199,8 +199,8 @@ def train(net):
                     hypotheses=fake_sents, gram=4)
                 log.info('nltk bleu-{}: {}'.format(4, bleu))
 
-                leakgan = leakgan_bleu(test_sents, fake_sents)
-                urop = urop_bleu(test_sents, fake_sents)
+                leakgan = leakgan_bleu(test_sents[:min(len(fake_sents)*50, len(test_sents))], fake_sents)
+                urop = urop_bleu(test_sents[:min(len(fake_sents)*50, len(test_sents))], fake_sents)
                 log.info('leakgan_bleu: '+str(leakgan))
                 log.info('urop_bleu: '+str(urop))
                 ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
@@ -210,12 +210,12 @@ def train(net):
                 log.info("Perplexity {}".format(ppl))
                 writer.add_scalar('Eval/5_nltk_Bleu', bleu, sv.global_step)
                 writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, sv.global_step)
-                writer.add_scalar('Eval/7_leakgan_bleu2', leakgan[0])
-                writer.add_scalar('Eval/7_leakgan_bleu3', leakgan[1])
-                writer.add_scalar('Eval/7_leakgan_bleu4', leakgan[2])
-                writer.add_scalar('Eval/8_urop_bleu2', urop[0])
-                writer.add_scalar('Eval/8_urop_bleu3', urop[1])
-                writer.add_scalar('Eval/8_urop_bleu4', urop[2])
+                writer.add_scalar('Eval/7_leakgan_bleu2', leakgan[0], sv.global_step)
+                writer.add_scalar('Eval/7_leakgan_bleu3', leakgan[1], sv.global_step)
+                writer.add_scalar('Eval/7_leakgan_bleu4', leakgan[2], sv.global_step)
+                writer.add_scalar('Eval/8_urop_bleu2', urop[0], sv.global_step)
+                writer.add_scalar('Eval/8_urop_bleu3', urop[1], sv.global_step)
+                writer.add_scalar('Eval/8_urop_bleu4', urop[2], sv.global_step)
             ### end
             sv.save()
 
