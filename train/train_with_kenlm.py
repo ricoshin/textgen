@@ -1,3 +1,4 @@
+import collections
 import logging
 import numpy as np
 import os
@@ -8,21 +9,19 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from models.autoencoder import Autoencoder
-from models.code_disc import CodeDiscriminator
-from models.generator import Generator
-from models.sample_disc import SampleDiscriminator
 
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
-                                train_disc_c, train_disc_s)
-from train.train_helper import (load_test_data, append_pads, print_ae_sents,
-                                print_gen_sents, ids_to_sent_for_eval,
-                                halve_attns, print_attns)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec, 
+                                train_gen, train_disc_c, train_disc_s,
+                                generate_codes, eval_gen_dec)
+from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+                                print_ae_fr_sents, print_gen_sents, 
+                                ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
 log = logging.getLogger('main')
+dict = collections.OrderedDict
 
 from test.evaluate_nltk import truncate, corp_bleu
 from test.bleu_variation import leakgan_bleu, urop_bleu
@@ -93,7 +92,8 @@ def train(net):
                     break  # end of epoch
                 batch = net.data_ae.next()
                 rp_ae = train_ae(cfg, net.ae, batch)
-                net.optim_ae.step()
+                net.optim_enc.step()
+                net.optim_dec.step()
                 sv.inc_batch_step()
 
             # train gan
@@ -106,10 +106,8 @@ def train(net):
                     batch = net.data_gan.next()
 
                     # train CodeDiscriminator
-                    code_real = net.ae.encode_only(cfg, batch)
-                    code_fake = net.gen.generate(cfg, None, False)
-                    rp_dc = train_disc_c(cfg, net.disc_c, net.ae,
-                                         code_real, code_fake)
+                    code_real, code_fake = generate_codes(cfg, net, batch)
+                    rp_dc = train_disc_c(cfg, net, code_real, code_fake)
                     #err_dc_total, err_dc_real, err_dc_fake = err_dc
 
                     # train SampleDiscriminator
