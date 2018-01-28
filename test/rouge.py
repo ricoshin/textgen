@@ -30,7 +30,7 @@ def file_rouge(ref_path, hyp_path):
 """
 Below code is copied from others
 https://github.com/xinyadu/nqg/blob/master/qgevalcap/rouge/rouge.py
-"""
+
 # Description : Computes ROUGE-L metric as described by Lin and Hovey (2004)
 #
 # Creation Date : 2015-01-07 06:03
@@ -130,3 +130,4 @@ class Rouge():
 
     def method(self):
 return "Rouge"
+"""

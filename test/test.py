@@ -21,9 +21,7 @@ from utils.utils import set_random_seed, to_gpu, set_logger
 from datetime import datetime
 
 from test.evaluate_nltk import truncate, corp_bleu
-from train.train_with_kenlm import train_lm, ids_to_sent_for_eval, \
-                                print_ae_sents, print_gen_sents, \
-                                load_test_data
+from train.train_with_kenlm import train_lm
 
 from test.bleu_variation import leakgan_bleu, urop_bleu
 from test.rouge import corp_rouge
