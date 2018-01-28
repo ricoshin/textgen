@@ -142,12 +142,9 @@ class SampleDiscriminator(nn.Module):
         x_a = self.last_fc_attn(l_ctx).squeeze() # [bsz]
         x_a = F.sigmoid(x_a)
 
-        # final fc for reconstruction
-        x = self.last_fc_recon(x)
-
         # w_attn : [n_layers, bsz, len]
         # layer_attn : [n_layers, bsz]
-        return x, x_a, [w_attn, l_attn]
+        return x_a, [w_attn, l_attn]
 
     def _check_train(self, train):
         if train:

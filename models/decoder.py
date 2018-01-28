@@ -163,13 +163,14 @@ class Decoder(nn.Module):
                 outs = F.softmax(logits/1e-6, 1).unsqueeze(1)
                 # [batch_size, 1 ntoken]
 
+            # if eos token has already appeared, fill zeros
+            ids, outs, finished = self._pads_after_eos(ids, outs, finished)
+            # append generated token ids & outs at each step
+
             # for the next step
             embed = self.embed(ids)
             inputs = torch.cat([embed, hidden.unsqueeze(1)], 2)
 
-            # if eos token has already appeared, fill zeros
-            ids, out, finished = self._pads_after_eos(ids, outs, finished)
-            # append generated token ids & outs at each step
             all_ids.append(ids)
             all_outs.append(outs)
             all_logits.append(logits.unsqueeze(1))
