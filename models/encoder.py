@@ -17,12 +17,8 @@ class Encoder(nn.Module):
         self.vocab = vocab
         self.noise_radius = cfg.noise_radius
 
-        # Vocabulary embedding
-        self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
-        self.embed.weight.data.copy_(torch.from_numpy(vocab.embed_mat))
-
-        if cfg.load_glove and cfg.fix_embed:
-            self.embed.weight.requires_grad = False
+        # word embedding
+        self.embed = WordEmbedding(cfg, vocab.embed_mat)
 
         # RNN Encoder and Decoder
         self.encoder = nn.LSTM(input_size=cfg.embed_size,
@@ -37,16 +33,11 @@ class Encoder(nn.Module):
         # unifrom initialization in the range of [-0.1, 0.1]
         initrange = 0.1
 
-        # Initialize Vocabulary Matrix Weight
-        if not self.cfg.load_glove:
-            self.embed.weight.data.uniform_(-initrange, initrange)
-        # by default it's initialized with normal_(0,1)
-
         # Initialize Encoder and Decoder Weights
         for p in self.encoder.parameters():
             p.data.uniform_(-initrange, initrange)
 
-    def store_grad_norm(self, grad):
+    def _store_grad_norm(self, grad):
         norm = torch.norm(grad, 2, 1)
         self.grad_norm = norm.detach().data.mean()
         # use this when compute disc_c's gradient (register_hook)
@@ -58,7 +49,7 @@ class Encoder(nn.Module):
         hidden = self._encode(indices, lengths, noise)
 
         if save_grad_norm and hidden.requires_grad:
-            hidden.register_hook(self.store_grad_norm)
+            hidden.register_hook(self._store_grad_norm)
 
         return hidden
 

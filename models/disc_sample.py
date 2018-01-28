@@ -100,8 +100,6 @@ class SampleDiscriminator(nn.Module):
         self.criterion_bce = nn.BCELoss()
         #self.criterion_cs = F.cosine_similarity()
 
-
-
     def forward(self, x, train=False):
         self._check_train(train)
         x = self._adaptive_embedding(x) # [bsz, max_len, embed_size]

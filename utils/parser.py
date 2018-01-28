@@ -139,6 +139,7 @@ parser.add_argument('--N', type=int, default=5,
 parser.add_argument('--log_interval', type=int, default=200,
                     help='interval to log autoencoder training results')
 
+
 # Other
 parser.add_argument('--small', action='store_true') # just for debugging
 parser.add_argument('--log_level', type=str, default='debug')
