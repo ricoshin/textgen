@@ -1,7 +1,7 @@
 """
 rouge module
 """
-from test/evaluate_nltk import truncate
+from test.evaluate_nltk import truncate
 from rouge import Rouge
 from rouge import FilesRouge
 # input format : ["sentence"]
