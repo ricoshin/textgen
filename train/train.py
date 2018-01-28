@@ -58,7 +58,7 @@ def train(net):
 
                     # train SampleDiscriminator
                     if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        rp_ds_l_gan, rp_ds_pred, ids, attns = \
+                        rp_ds_loss, rp_ds_pred, ids, attns = \
                             train_disc_s(cfg, net, batch, code_real, code_fake)
                         net.optim_disc_s.step()
 
@@ -102,21 +102,20 @@ def train(net):
 
             # Discriminator_s
             if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                rp_ds_l_gan.update(dict(G_Dec=rp_dec.loss))
-                rp_ds_l_gan.drop_log_and_events(sv, writer)
-                rp_ds_l_rec.drop_log_and_events(sv, writer, False)
-
+                rp_ds_loss.update(dict(G_Dec=rp_dec.loss))
+                rp_ds_loss.drop_log_and_events(sv, writer)
                 rp_ds_pred.update(dict(G_Dec=rp_dec.pred))
                 rp_ds_pred.drop_log_and_events(sv, writer, False)
 
                 a_real, a_fake = attns
                 ids_real, ids_fake = ids
-                ids_tar = batch.tar.view(cfg.batch_size, -1).data.cpu().numpy()
+                ids_fake_r = ids_fake[len(ids_fake)//2:]
+                ids_fake_f = ids_fake[:len(ids_fake)//2]
                 a_fake_r, a_fake_f = halve_attns(a_fake)
                 print_attns(cfg, net.vocab,
-                            dict(Real=(ids_tar, a_real),
-                                 Fake_R=(ids_real, a_fake_r),
-                                 Fake_F=(ids_fake, a_fake_f)))
+                            dict(Real=(ids_real, a_real),
+                                 Fake_R=(ids_fake_r, a_fake_r),
+                                 Fake_F=(ids_fake_f, a_fake_f)))
 
             fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
             rp_scores = evaluate_sents(test_sents, fake_sents)
