@@ -6,17 +6,24 @@ from rouge import Rouge
 from rouge import FilesRouge
 # input format : ["sentence"]
 def sent_rouge(reference, hypothesis):
-    ref = truncate(reference)
-    hyp = truncate(hypothesis)
+    ref = truncate(reference, True)
+    hyp = truncate(hypothesis, True)
     rouge = Rouge()
-    scores = rouge.get_scores(reference, hypothesis)
+    scores = rouge.get_scores(ref, hyp)
+    p = scores[0]['rouge-l']['p']
+    return p
 
 # input format : ["sentence", "sentence", ...]
 def corp_rouge(references, hypotheses):
-    ref = [truncate(s) for s in references]
-    hyp = [truncate(s) for s in hypotheses]
+    ref = [truncate(s, True) for s in references]
+    hyp = [truncate(s, True) for s in hypotheses]
+    scores = 0
     rouge = Rouge()
-    scores = rouge.get_scores(references, hypotheses, avg=True)
+    for h in hyp:
+        for r in ref:
+            temp = rouge.get_scores(r, h)
+            scores += temp[0]['rouge-l']['p']
+    return scores/(len(hyp)*len(ref))
 
 # Score two files (line by line)
 # Given two files `hyp_path`, `ref_path`, with the same number (`n`) of lines,
@@ -24,6 +31,7 @@ def corp_rouge(references, hypotheses):
 def file_rouge(ref_path, hyp_path):
     files_rouge = FilesRouge(hyp_path, ref_path)
     scores = files_rouge.get_scores(avg=True)
+    return scores
 
 
 

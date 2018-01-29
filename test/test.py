@@ -40,6 +40,7 @@ def test(net):
     testlog = logging.getLogger('test')
     set_logger(cfg=cfg, name='test')
     testlog.info("test session {}".format(datetime.now()))
+
     sv = Supervisor(net)
     set_random_seed(cfg)
     fixed_noise = net.gen.make_noise(cfg, cfg.eval_size) # for generator

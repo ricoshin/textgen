@@ -21,7 +21,7 @@ bleu score metric
 method3 is used for smoothing
 """
 # This function doesn't remove articles, since articles may affect bleu score
-def truncate(sent):
+def truncate(sent, is_split = False):
     def remove_punc(text):
         exclude = set(string.punctuation)
         return ''.join(ch for ch in text if ch not in exclude)
@@ -44,7 +44,10 @@ def truncate(sent):
     def lower(text):
         return text.lower()
 
-    return remove_punc(remove_token(remove_dot(lower(sent)))).split()
+    if is_split:
+        return remove_punc(remove_token(remove_dot(lower(sent))))
+    else:
+        return remove_punc(remove_token(remove_dot(lower(sent)))).split()
 
 # hypotheses : ["sentence", "sentence", ...]
 # references : ["sentence", "sentence", ...]

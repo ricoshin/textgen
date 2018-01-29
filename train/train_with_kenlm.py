@@ -25,6 +25,7 @@ dict = collections.OrderedDict
 
 from test.evaluate_nltk import truncate, corp_bleu
 from test.bleu_variation import leakgan_bleu, urop_bleu
+from test.rouge import corp_rouge
 
 """
 codes originally from ARAE : https://github.com/jakezhaojb/ARAE
@@ -78,7 +79,7 @@ def train(net):
     log.info("Training start!")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
-    fixed_noise = net.gen.make_noise(cfg, cfg.eval_size) # for generator
+    fixed_noise = net.gen.make_noise(cfg.eval_size) # for generator
     writer = SummaryWriter(cfg.log_dir)
     sv = Supervisor(net)
     test_sents = load_test_data(cfg)
@@ -91,7 +92,7 @@ def train(net):
                 if sv.epoch_stop():
                     break  # end of epoch
                 batch = net.data_ae.next()
-                rp_ae = train_ae(cfg, net.ae, batch)
+                rp_ae = train_ae(cfg, net, batch)
                 net.optim_enc.step()
                 net.optim_dec.step()
                 sv.inc_batch_step()

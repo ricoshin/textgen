@@ -3,7 +3,7 @@ import logging
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from dataloader.book_corpus import BatchingDataset, BatchIterator
+from loader.book_corpus import BatchingDataset, BatchIterator
 from models.encoder import Encoder
 from models.decoder import Decoder
 from models.disc_code import CodeDiscriminator
