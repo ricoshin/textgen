@@ -17,14 +17,14 @@ from utils.utils import to_gpu
 log = logging.getLogger('main')
 
 
-class BookCorpusMultiProcessor(LargeFileMultiProcessor):
+class CorpusMultiProcessor(LargeFileMultiProcessor):
     def __init__(self, file_path, num_process=None,
                  min_len=0, max_len=999, tokenizer='spacy'):
         # skip out too short/long sentences
         self.min_len = min_len
         self.max_len = max_len
         self.tokenizer = tokenizer
-        super(BookCorpusMultiProcessor, self).__init__(file_path, num_process)
+        super(CorpusMultiProcessor, self).__init__(file_path, num_process)
 
     @classmethod
     def from_multiple_files(cls, file_paths, num_process=None,
@@ -55,7 +55,7 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
         return sents, counter
 
     def process(self):
-        results = super(BookCorpusMultiProcessor, self).process()
+        results = super(CorpusMultiProcessor, self).process()
         log.info('\n' * (self.num_process - 1)) # to prevent dirty print
 
         sents = []
@@ -107,7 +107,7 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
             return lambda s: [tok for tok in nltk.word_tokenize(s)]
 
 
-class BookCorpusDataset(Dataset):
+class CorpusDataset(Dataset):
     def __init__(self, file_path, vocab=None):
         self.file_path = file_path
         self.getline_fn = linecache.getline
@@ -155,7 +155,8 @@ class Batch(object):
 
 
 class BatchingDataset(object):
-    def __init__(self, vocab, gpu=False):
+    def __init__(self, cfg, vocab, gpu=False):
+        self.cfg = cfg
         self.gpu = gpu
         self.pad_id = vocab.PAD_ID
         self.sos_id = vocab.SOS_ID
@@ -167,8 +168,8 @@ class BatchingDataset(object):
     def process(self, sample_list):
         source = []
         target = []
-        lengths = [(len(sample) + 1) for sample in sample_list] # +1: sos/eos
-        max_len = max(lengths)
+        lengths = [(len(sample)) for sample in sample_list]
+        batch_max_len = max(lengths)
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(sample_list) > 1:
@@ -176,20 +177,21 @@ class BatchingDataset(object):
 
         for sample in sample_list:
             # pad & sos/eos
-            num_pads = max_len - len(sample) - 1
+            num_pads = batch_max_len - len(sample)
             pads = [self.pad_id] * num_pads
-            x = [self.sos_id] + sample + pads
+            x = sample + pads
             y = sample + [self.eos_id] + pads
+
             source.append(x)
             target.append(y)
 
         source = torch.LongTensor(np.array(source))
         target = torch.LongTensor(np.array(target)).view(-1)
 
-
         if self.gpu:
             source = source.cuda()
             target = target.cuda()
+
 
         return Batch(source, target, lengths)
 
