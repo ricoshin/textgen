@@ -238,11 +238,15 @@ def print_attns(cfg, vocab, id_attn_pair):
     print_line(' ')
 
 def load_test_data(cfg):
-    test_sents = []
-    with open(cfg.test_filepath) as f:
+    test_q_sents = []
+    test_a_sents = []
+    with open(cfg.test_q_filepath) as f:
         for line in f:
-            test_sents.append(line.strip())
-    return test_sents
+            test_q_sents.append(line.strip())
+    with open(cfg.test_a_filepath) as f:
+        for line in f:
+            test_a_sents.append(line.strip())
+    return test_q_sents, test_a_sents
 
 def append_pads(cfg, tensor, vocab):
     pad_len = (cfg.max_len+1) - tensor.size(1)

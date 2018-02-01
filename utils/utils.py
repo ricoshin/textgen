@@ -118,14 +118,19 @@ def prepare_paths(cfg):
                 [*map(lambda fn: os.path.join(cfg.data_dir, fn), filenames)]
             cfg.test_filepath = None
 
-    elif cfg.data_name == "snli":
+    elif cfg.data_name == "snli" or cfg.data_name == "simpleqa":
         if cfg.small:
             raise Exception("There's no small version of snli dataset!")
         else:
-            cfg.train_filepath = os.path.join(cfg.data_dir, 'train.txt')
-            cfg.test_filepath = os.path.join(cfg.data_dir, 'test.txt')
+            cfg.train_q_filepath = os.path.join(cfg.data_dir, 'train_q.txt')
+            cfg.train_a_filepath = os.path.join(cfg.data_dir, 'train_a.txt')
+            cfg.test_q_filepath = os.path.join(cfg.data_dir, 'test_q.txt')
+            cfg.test_a_filepath = os.path.join(cfg.data_dir, 'test_a.txt')
+            cfg.valid_a_filepath = os.path.join(cfg.data_dir, 'valid_q.txt')
+            cfg.valid_a_filepath = os.path.join(cfg.data_dir, 'valid_a.txt')
 
-    cfg.data_filepath = os.path.join(cfg.prepro_dir, "data.txt")
+    cfg.train_q_data_filepath = os.path.join(cfg.prepro_dir, "train_q_data.txt")
+    cfg.train_a_data_filepath = os.path.join(cfg.prepro_dir, "train_a_data.txt")
     cfg.vocab_filepath = os.path.join(cfg.prepro_dir, "vocab.pickle")
 
     if not os.path.exists(cfg.data_dir):
@@ -153,4 +158,3 @@ def to_gpu(gpu, var):
     if gpu:
         return var.cuda()
     return var
-

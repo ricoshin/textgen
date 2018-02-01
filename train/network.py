@@ -14,22 +14,25 @@ log = logging.getLogger('main')
 
 
 class Network(object):
-    def __init__(self, cfg, book_corpus, vocab):
+    def __init__(self, cfg, train_q_data, train_a_data, vocab):
         self.cfg = cfg
         self.vocab = vocab
         self.ntokens = len(vocab)
 
         batching_dataset = BatchingDataset(vocab)
-        data_loader = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
+        train_q_data_loader = DataLoader(train_q_data, cfg.batch_size, shuffle=True,
+                                 num_workers=0, collate_fn=batching_dataset,
+                                 drop_last=True, pin_memory=True)
+        train_a_data_loader = DataLoader(train_a_data, cfg.batch_size, shuffle=True,
                                  num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
 
         #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
         #                                shuffle=False, num_workers=4,
         #                                collate_fn=batching_dataset)
-        self.data_ae = BatchIterator(data_loader, cfg.cuda)
-        self.data_gan = BatchIterator(data_loader, cfg.cuda)
-        self.data_eval = BatchIterator(data_loader, cfg.cuda, volatile=True)
+        self.data_ae = BatchIterator(train_q_data_loader, cfg.cuda)
+        self.data_gan = BatchIterator(train_a_data_loader, cfg.cuda)
+        self.data_eval = BatchIterator(traom_q_data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
         # Autoencoder

@@ -15,7 +15,7 @@ parser.add_argument('--prepro_dir', type=str, default='prepro',
 parser.add_argument('--data_dir', type=str, default='data',
                     help='location of the datasets')
 parser.add_argument('--data_name', type=str, default='snli',
-                    choices=['snli','books'], help='name of dataset')
+                    choices=['snli','books', 'simpleqa'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')
 parser.add_argument('--out_dir', type=str, default='out',
@@ -124,8 +124,8 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
 parser.add_argument('--anneal_step', type=int, default=200,
                     help='autoencdoer noise annealing interval')
 
-parser.add_argument('--word_act', type=str, default='softmax', 
-                    choices=['softmax', 'sigmoid', 'sparsemax'], 
+parser.add_argument('--word_act', type=str, default='softmax',
+                    choices=['softmax', 'sigmoid', 'sparsemax'],
                     help='word attention activation function')
 
 # Evaluation Arguments
