@@ -43,7 +43,7 @@ def test(net):
     sv = Supervisor(net)
     set_random_seed(cfg)
     fixed_noise = net.gen.make_noise(cfg, cfg.eval_size) # for generator
-    test_sents = load_test_data(cfg)
+    test_q_sents, test_a_sents = load_test_data(cfg)
 
     # exponentially decaying noise on autoencoder
     # noise_raius = 0.2(default)
@@ -55,7 +55,7 @@ def test(net):
     nbatch = sv.batch_step
     niter = sv.global_step
     print('epoch {}, nbatch {}, niter {}. \033[1;34m'.format(epoch, nbatch, niter)) # add color
-    
+
     # get the number of batch size(num_samples)
     print('default batch size:', cfg.batch_size)
     batch_size = int(input("enter batch size(quit:0):")) # to quit test session, enter 0
@@ -104,27 +104,29 @@ def test(net):
 
         #choose range of evaluation
         eval_setting = input("Do you want to perform full evaluation?(y/n):")
-        rp_scores = evaluate_sents(test_sents, fake_sents)
+        rp_scores = evaluate_sents(test_a_sents, fake_sents)
 
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
-            bleu1 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=1)
+            bleu1 = corp_bleu(references=test_a_sents, hypotheses=fake_sents, gram=1)
             testlog.info('Eval/bleu-1: '+str(bleu1))
-            bleu2 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=2)
+            bleu2 = corp_bleu(references=test_a_sents, hypotheses=fake_sents, gram=2)
             testlog.info('Eval/bleu-2: '+str(bleu2))
-            bleu3 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=3)
+            bleu3 = corp_bleu(references=test_a_sents, hypotheses=fake_sents, gram=3)
             testlog.info('Eval/bleu-3: '+str(bleu3))
-            bleu = corp_bleu(references=test_sents, hypotheses=fake_sents)
+            bleu = corp_bleu(references=test_a_sents, hypotheses=fake_sents)
             #how to load pre-built arpa file?
             testlog.info('Eval/5_nltk_Bleu: '+str(bleu))
-            testlog.info('Eval/leakgan_bleu: '+str(leakgan_bleu(test_sents, fake_sents)))
-            testlog.info('Eval/urop_bleu: '+str(urop_bleu(test_sents, fake_sents)))
+            testlog.info('Eval/leakgan_bleu: '+str(leakgan_bleu(test_a_sents, fake_sents)))
+            testlog.info('Eval/urop_bleu: '+str(urop_bleu(test_a_sents, fake_sents)))
 
-        bleu4 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=4)
-        ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
+        bleu4 = corp_bleu(references=test_a_sents, hypotheses=fake_sents, gram=4)
+        testlog.info('Eval/bleu-4: '+str(bleu4))
+        """
+        ppl = train_lm(eval_data=test_a_sents, gen_data = fake_sents,
             vocab = net.vocab,
             save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter), # .arpa file path
             n = cfg.N)
-        testlog.info('Eval/bleu-4: '+str(bleu4))
         testlog.info('Eval/6_Reverse_Perplexity: '+str(ppl))
+        """
     # end test session
     print('exit test' + '\033[0;0m') # reset color
