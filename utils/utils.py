@@ -78,8 +78,8 @@ def set_logger(cfg):
 
     # setup file handler
     if cfg.test == True:
-        cfg.log_filepath = cfg.testlog_filepath
-    file_handler = logging.FileHandler(cfg.log_filepath)
+        cfg.log_path = cfg.testlog_filepath
+    file_handler = logging.FileHandler(cfg.log_path)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(log_level)
 
@@ -98,14 +98,18 @@ def set_logger(cfg):
 
 
 def prepare_paths(cfg):
+    # set directories
     cfg.log_dir = os.path.join(cfg.out_dir, cfg.name)
     cfg.data_dir = os.path.join(cfg.data_dir, cfg.data_name)
-    name_postfix = "_%s" % cfg.data_name
-    len_postfix = "_%d_%d" % (cfg.min_len, cfg.max_len)
-    cfg.prepro_dir += (name_postfix + len_postfix)
-    cfg.log_filepath = os.path.join(cfg.log_dir, "log.txt")
-    cfg.testlog_filepath = os.path.join(cfg.log_dir, "testlog.txt")
+    prepro_name = "%s_%d_%d" % (cfg.data_name, cfg.min_len, cfg.max_len)
+    cfg.prepro_dir = os.path.join(cfg.prepro_dir, prepro_name)
+    cfg.log_path = os.path.join(cfg.log_dir, "log.txt")
 
+    # pos corpus& tags filepath
+    cfg.pos_sent_path = './data/pos_tagging/train/sentences.txt'
+    cfg.pos_tag_path = './data/pos_tagging/train/tags.txt'
+
+    # main corpus filepath
     if cfg.small:
         cfg.embed_size = 50
 
@@ -113,24 +117,26 @@ def prepare_paths(cfg):
         if cfg.small:
             cfg.prepro_dir += "_small"
             filename = "books_100k.txt"
-            cfg.train_filepath = os.path.join(cfg.data_dir, filename)
-            cfg.test_filepath = None
+            cfg.corpus_path = os.path.join(cfg.data_dir, filename)
         else:
             filenames = ["books_large_p1.txt", "books_large_p2.txt"]
-            cfg.train_filepath = \
+            cfg.corpus_path = \
                 [*map(lambda fn: os.path.join(cfg.data_dir, fn), filenames)]
-            cfg.test_filepath = None
 
     elif cfg.data_name == "snli":
         if cfg.small:
             raise Exception("There's no small version of snli dataset!")
         else:
-            cfg.train_filepath = os.path.join(cfg.data_dir, 'train.txt')
-            cfg.test_filepath = os.path.join(cfg.data_dir, 'test.txt')
+            cfg.corpus_path = os.path.join(cfg.data_dir, 'train.txt')
 
-    cfg.data_filepath = os.path.join(cfg.prepro_dir, "data.txt")
-    cfg.vocab_filepath = os.path.join(cfg.prepro_dir, "vocab.pickle")
+    # preprocessed file path
+    cfg.corpus_data_path = os.path.join(cfg.prepro_dir, "data.txt")
+    cfg.corpus_vocab_path = os.path.join(cfg.prepro_dir, "vocab.pickle")
+    cfg.pos_sent_data_path = os.path.join(cfg.prepro_dir, "data_pos_sent.txt")
+    cfg.pos_tag_data_path = os.path.join(cfg.prepro_dir, "data_pos_tag.txt")
+    cfg.pos_vocab_path = os.path.join(cfg.prepro_dir, "vocab_pos.pickle")
 
+    # make dirs if not exists
     if not os.path.exists(cfg.data_dir):
         raise Exception("can't find data_dir: %s" % cfg.data_dir)
 

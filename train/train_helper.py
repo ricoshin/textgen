@@ -138,7 +138,7 @@ def print_gen_sents(vocab, output_ids, nline=999):
 def align_word_attn(words, attns_w, attns_l, min_width=4):
     # attn_list[i] : [attn1[i], attn2[i], attn3[i]]
     word_formats = ' '.join(['{:^%ds}' % max(min_width, len(word))
-                            for word in words])
+                             for word in words])
     word_str = word_formats.format(*words)
     attn_str_list = []
     # group word & layer attention by layers
@@ -152,11 +152,10 @@ def align_word_attn(words, attns_w, attns_l, min_width=4):
         attn_str_list.append(attn_str)
     return word_str, attn_str_list
 
-def mark_empty_attn_w(attns, max_len):
-    filter_n_stride = [(3,1), (3,2), (3,2), (4,1)]
-    #attns = list(zip(*attns)) # layer first
-    assert len(filter_n_stride) == len(attns)
-    filters, strides = zip(*filter_n_stride)
+def mark_empty_attn_w(attns, cfg):
+    filters = cfg.arch_enc_disc.f
+    strides = cfg.arch_enc_disc.s
+    assert len(filters) == len(attns)
     stride_ = 1
     actual_strides = []
     for stride in strides:
@@ -177,7 +176,7 @@ def mark_empty_attn_w(attns, max_len):
         empty_attn = np.ones([attn.shape[0], 1]) * (-1) # for column inserting
         attn_cnt = 0
         actual_strides *= strides[i]
-        for j in range(max_len - left_empty):
+        for j in range(cfg.max_len - left_empty):
             if j % actual_strides[i]  == 0 and attn_cnt < attn.shape[1]:
                 new_attn = np.append(new_attn, attn[:, [attn_cnt]], axis=1)
                 attn_cnt += 1
@@ -213,7 +212,7 @@ def print_attns(cfg, vocab, id_attn_pair):
         sample_num = 2
         attns_w, attns_l = bat_attns
         #import ipdb; ipdb.set_trace()
-        attns_w = mark_empty_attn_w(attns_w, cfg.max_len + 1)
+        attns_w = mark_empty_attn_w(attns_w, cfg)
         attns_w, attns_l = batch_first_attns([attns_w, attns_l])
         coupled = list(zip(bat_ids, attns_w, attns_l))
         np.random.shuffle(coupled)
@@ -243,15 +242,6 @@ def load_test_data(cfg):
         for line in f:
             test_sents.append(line.strip())
     return test_sents
-
-def append_pads(cfg, tensor, vocab):
-    pad_len = (cfg.max_len+1) - tensor.size(1)
-    if pad_len > 0:
-        pads = torch.ones([cfg.batch_size, pad_len]) * vocab.PAD_ID
-        pads = Variable(pads, requires_grad=False).long().cuda()
-        return torch.cat((tensor, pads), dim=1)
-    else:
-        return tensor
 
 def mask_sequence_with_n_inf(self, seqs, seq_lens):
     max_seq_len = seqs.size(1)

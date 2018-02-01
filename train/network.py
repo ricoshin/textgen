@@ -3,9 +3,10 @@ import logging
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from dataloader.book_corpus import BatchingDataset, BatchIterator
-from models.encoder import Encoder
-from models.decoder import Decoder
+from loader.corpus import BatchingDataset, BatchIterator
+from models.encoder import EncoderRNN
+from models.enc_disc import EncoderDisc, EncoderDiscModeWrapper
+from models.decoder import DecoderRNN
 from models.disc_code import CodeDiscriminator
 from models.generator import Generator
 from models.disc_sample import SampleDiscriminator
@@ -19,7 +20,7 @@ class Network(object):
         self.vocab = vocab
         self.ntokens = len(vocab)
 
-        batching_dataset = BatchingDataset(vocab)
+        batching_dataset = BatchingDataset(cfg, vocab)
         data_loader = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
                                  num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
@@ -32,16 +33,23 @@ class Network(object):
         self.data_eval = BatchIterator(data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
-        # Autoencoder
-        self.enc = Encoder(cfg, vocab)
-        self.dec = Decoder(cfg, vocab)
+        # Encoder
+        if cfg.enc_disc:
+            self.enc = EncoderDisc(cfg, vocab)
+        else:
+            self.enc = EncoderRNN(cfg, vocab)
+        # Decoder
+        self.dec = DecoderRNN(cfg, vocab)
         # Generator
         self.gen = Generator(cfg)
         # Discriminator - code level
         self.disc_c = CodeDiscriminator(cfg)
         # Discriminator - sample level
         if cfg.with_attn:
-            self.disc_s = SampleDiscriminator(cfg, vocab)
+            if cfg.enc_disc:
+                self.disc_s = EncoderDiscModeWrapper(self.enc)
+            else:
+                self.disc_s = EncoderDiscModeWrapper(EncoderDisc(cfg, vocab))
 
         # Print network modules
         log.info(self.enc)

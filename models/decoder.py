@@ -17,11 +17,26 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.cfg = cfg
         self.vocab = vocab
+        self.grad_norm = None
+        # word embedding
+        self.embed = WordEmbedding(cfg, vocab.embed_mat)
+
+    def forward(self, *input):
+        raise NotImplementedError
+
+    def _store_grad_norm(self, grad):
+        norm = torch.norm(grad, 2, 1)
+        self.grad_norm = norm.detach().data.mean()
+        return grad
+
+
+class DecoderRNN(Decoder):
+    def __init__(self, cfg, vocab):
+        super(DecoderRNN, self).__init__(cfg, vocab)
         self.start_symbols = to_gpu(
             cfg.cuda, Variable(torch.ones(10, 1).long()))
 
-        # word embedding
-        self.embed = WordEmbedding(cfg, vocab.embed_mat)
+
 
         decoder_input_size = cfg.embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
@@ -58,39 +73,38 @@ class Decoder(nn.Module):
         zeros = Variable(torch.zeros(self.cfg.nlayers, bsz, self.cfg.nhidden))
         return to_gpu(self.cfg.cuda, zeros)
 
-    def _store_grad_norm(self, grad):
-        norm = torch.norm(grad, 2, 1)
-        self.grad_norm = norm.detach().data.mean()
-        # use this when compute disc_s's gradient (register_hook)
-        return grad
+    def _get_sos_batch(self, bsz):
+        sos_ids = to_gpu(self.cfg.cuda, Variable(torch.ones(bsz, 1).long()))
+        sos_ids.fill_(self.vocab.SOS_ID)
+        return sos_ids
 
     def _pads_after_eos(self, ids, out, finished):
         # zero ids after eos
         assert(self.vocab.PAD_ID == 0)
+        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
         ids_mask = finished.eq(0)
         ids = ids * ids_mask.long()
-        # zero out after eos
         out_mask = ids_mask.unsqueeze(2).expand_as(out)
         out = out * out_mask.float()
-        #out_ones = finished.gt(0)
-        #out[:, 0, self.vocab.PAD_ID] = out_ones.float()
-        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
         return ids, out, finished
 
     def forward(self, hidden, indices, lengths):
-        batch_size, maxlen = indices.size()
-
-        decoded = self._decode(hidden, batch_size, maxlen,
-                              indices=indices, lengths=lengths)
+        decoded = self._decode(hidden, indices, lengths)
 
         return decoded
 
-    def _decode(self, hidden, batch_size, maxlen, indices=None, lengths=None):
-        # batch x hidden
-        # hidden.size() : batch_size x hidden_size
-        # hidden.unsqueeze(1) : batch_size x 1 x hidden_size
-        # hidden.unsqueeze(1).repeat(1, maxlen, 1) : batch_size x max_len x hidden_size
-        all_hidden = hidden.unsqueeze(1).repeat(1, maxlen, 1)
+    def _decode(self, hidden, indices, lengths):
+        batch_size = indices.size(0)
+
+        # insert sos in the first column
+        sos_ids = self._get_sos_batch(batch_size)
+        indices = torch.cat([sos_ids, indices], 1)
+        # length should be increased as well
+        lengths = [length + 1 for length in lengths]
+
+        # hidden.size() : bsz x hidden_size
+        # bsz x max_len x hidden_size
+        all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
 
         if self.cfg.hidden_init:
             state = (hidden.unsqueeze(0), self._init_state(batch_size))
@@ -98,7 +112,10 @@ class Decoder(nn.Module):
             state = self._init_hidden(batch_size)
 
         embeddings = self.embed(indices) # for teacher forcing
-        augmented_embeddings = torch.cat([embeddings, all_hidden], 2)
+        try:
+            augmented_embeddings = torch.cat([embeddings, all_hidden], 2)
+        except:
+            import ipdb; ipdb.set_trace()
         packed_embeddings = pack_padded_sequence(input=augmented_embeddings,
                                                  lengths=lengths,
                                                  batch_first=True)
@@ -113,12 +130,11 @@ class Decoder(nn.Module):
         # reshape to batch_size*maxlen x nhidden before linear over vocab
         output = output.contiguous().view(-1, self.cfg.hidden_size)
         decoded = self.linear(output) # output layer
-        decoded = decoded.view(batch_size, maxlen, self.cfg.vocab_size)
+        decoded = decoded.view(batch_size, max(lengths), self.cfg.vocab_size)
 
         return decoded # decoded.size() : batch x max_len x ntokens [logits]
 
     def generate(self, hidden):
-
         if not self.cfg.backprop_gen:
             # should not backprop gradient to enc/gen
             hidden = hidden.detach()
@@ -132,13 +148,9 @@ class Decoder(nn.Module):
             state = self._init_hidden(batch_size)
 
         # <sos>
-        self.start_symbols.data.resize_(batch_size, 1)
-        self.start_symbols.data.fill_(1)
-        # self.start_symbols.size() : [batch_size, 1]
-
-        embedding = self.embed(self.start_symbols)
-        # embedding : [batch_size, 1, embedding_size]
-        inputs = torch.cat([embedding, hidden.unsqueeze(1)], 2)
+        sos_embedding = self.embed(self._get_sos_batch(batch_size))
+        # sos_embedding : [batch_size, 1, embedding_size]
+        inputs = torch.cat([sos_embedding, hidden.unsqueeze(1)], 2)
 
         # unroll
         all_ids = []
@@ -148,7 +160,7 @@ class Decoder(nn.Module):
         finished = torch.ByteTensor(batch_size, 1).zero_()
         finished = to_gpu(self.cfg.cuda,
                           Variable(finished, requires_grad=False))
-        max_len = self.cfg.max_len + 1 # including sos/eos
+        max_len = self.cfg.max_len #+ 1 # including sos/eos
         for i in range(max_len): # for each step
             # input very first step (sos totken + fake_z_code)
             outs, state = self.decoder(inputs, state)

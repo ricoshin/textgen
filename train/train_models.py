@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from train.train_helper import ResultPackage, append_pads
+from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
 dict = collections.OrderedDict
@@ -71,6 +71,7 @@ def eval_ae_tf(net, batch):
 
     return targets, outputs
 
+
 def eval_ae_fr(cfg, net, batch):
     # forward / NOTE : ae_mode off?
     # "real" real
@@ -79,6 +80,7 @@ def eval_ae_fr(cfg, net, batch):
     # output.size(): batch_size x max_len x ntokens (logits)
     target = batch.tar.view(outputs.size(0), -1)
     targets = target.data.cpu().numpy()
+
 
 def eval_ae_fr(net, batch):
     net.enc.eval()
@@ -239,17 +241,13 @@ def train_disc_s(cfg, net, batch, code_real, code_fake):
     # "real" fake (embeddings)
     outs_fake = torch.cat([outs_real, outs_fake], dim=0)
     code_fake = torch.cat([code_real, code_fake], dim=0)
-    # "real" real ids
-    ids_real = batch.tar.view(cfg.batch_size, -1)
-    ids_real = append_pads(cfg, ids_real, net.vocab)
-    #outs_real = batch.tar.view(cfg.batch_size, -1)
 
     # clamp parameters to a cube
     for p in net.disc_s.parameters():
         p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
         # WGAN clamp (default:0.01)
 
-    pred_real, attn_real = net.disc_s(ids_real.detach())
+    pred_real, attn_real = net.disc_s(batch.src.detach())
     pred_fake, attn_fake = net.disc_s(outs_fake.detach())
 
     # GAN loss
@@ -276,7 +274,7 @@ def train_disc_s(cfg, net, batch, code_real, code_fake):
                              dict(D_real=real_mean,
                                   D_Fake=fake_mean))
 
-    ids = [ids_real.data.cpu().numpy(), ids_fake]
+    ids = [batch.src.data.cpu().numpy(), ids_fake]
     attns = [attn_real, attn_fake]
 
     return loss_gan, pred_gan, ids, attns

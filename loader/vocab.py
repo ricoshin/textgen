@@ -18,18 +18,21 @@ class Vocab(object):
     UNK_ID = 3
     SPECIALS = ['<pad>', '<sos>', '<eos>', '<unk>']
 
-    def __init__(self, counter, max_size, min_freq=None, embed_dim=300,
-                 init_embed=None):
+    def __init__(self, counter, specials=True, max_size=None, min_freq=None):
 
         log.info('\nBuilding vocabulary...')
         self.word2idx = dict()
         self.idx2word = list()
+        self.embed_mat = None
 
-        # update special tokens
-        specials_ = {token: idx for idx, token in enumerate(Vocab.SPECIALS)}
-        self.word2idx.update(specials_)
-        self.idx2word = Vocab.SPECIALS.copy()
-        self.specials = Vocab.SPECIALS
+        if specials:
+            # update special tokens
+            specials_ = {token: idx for idx, token in enumerate(Vocab.SPECIALS)}
+            self.word2idx.update(specials_)
+            self.idx2word = Vocab.SPECIALS.copy()
+            self.specials = Vocab.SPECIALS
+        else:
+            self.specials = []
 
         # filter by the minimum frequency
         if min_freq is not None:
@@ -37,25 +40,20 @@ class Vocab(object):
             counter = Counter(filtered)
 
         # filter by frequency
-        words_and_freq = counter.most_common(max_size - len(Vocab.SPECIALS))
+        if max_size is None:
+            words_freq = counter.most_common()
+        else:
+            words_freq = counter.most_common(max_size - len(self.specials))
 
         # sort by alphbetical order
-        words_and_freq.sort(key=lambda tup: tup[0])
+        words_freq.sort(key=lambda tup: tup[0])
 
         # update word2idx & idx2word
-        for word, freq in words_and_freq:
+        for word, freq in words_freq:
             self.idx2word.append(word)
             self.word2idx[word] = len(self.idx2word) - 1
 
         vocab_size = len(self)
-        # standard gaussian distribution initialization
-        self.embed_mat = np.random.normal(size=(vocab_size, embed_dim))
-
-        if init_embed is not None:
-            for word, idx in self.word2idx.items():
-                self.embed_mat[idx] = init_embed.get(word, self.embed_mat[idx])
-        # embedding of <pad> token should be zero
-        self.embed_mat[self.word2idx['<pad>']] = 0
 
     def __len__(self):
         return len(self.word2idx)
@@ -71,14 +69,24 @@ class Vocab(object):
         with open(file_path, 'rb') as f:
             return pickle.load(f)
 
+    def generate_embeddings(self, embed_dim, init_embed=None):
+        # standard gaussian distribution initialization
+        self.embed_mat = np.random.normal(size=(len(self), embed_dim))
+
+        if init_embed is not None:
+            for word, idx in self.word2idx.items():
+                self.embed_mat[idx] = init_embed.get(word, self.embed_mat[idx])
+        # embedding of <pad> token should be zero
+        self.embed_mat[self.word2idx['<pad>']] = 0
+
     def numericalize_sents(self, sents):
         # convert words in sentences to indices
         # sents : [ [tok1, tok2, ... ], [tok1, tok2], ... ]
         result = list()
-        unk_id = self.word2idx['<unk>']
+        unknown = self.word2idx.get('<unk>', None)
         log.info('\nNumericalizing tokenized sents...')
         for sent in tqdm(sents, total=len(sents)):
-            result.append([self.word2idx.get(token, unk_id) for token in sent])
+            result.append([self.word2idx.get(token, unknown) for token in sent])
         return result
 
 

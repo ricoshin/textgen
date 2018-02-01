@@ -1,8 +1,8 @@
 import logging
 import os
 
-from loader.book_corpus import BookCorpusDataset
-from loader.preprocess import preprocess_data_vocab
+from loader.corpus import CorpusDataset
+from loader.process import process_main_corpus, process_pos_corpus
 from test.test import test
 from train.train import train
 from train.network import Network
@@ -25,13 +25,16 @@ if __name__ == '__main__':
     log = logging.getLogger('main')
 
     # Preprocessing
-    vocab = preprocess_data_vocab(cfg)
+    vocab_main = process_main_corpus(cfg)
+    #vocab_pos= process_pos_corpus(cfg, vocab_books)
 
     # Load dataset
-    book_corpus = BookCorpusDataset(cfg.data_filepath)
+    corpus_main = CorpusDataset(cfg.corpus_data_path)
+    #corpus_pos = CorpusDataset(cfg.pos_sent_data_path)
 
     # Build network
-    net = Network(cfg, book_corpus, vocab)
+    net = Network(cfg, corpus_main, vocab_main)
+    #net = Network(cfg, corpus_main, corpus_pos, vocab_main, vocab_pos)
 
     # Train
     if not cfg.test:

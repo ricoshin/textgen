@@ -38,7 +38,7 @@ class SampleDiscriminator(nn.Module):
         c = [in_chann] + [300, 400, 500, 600]
 
 
-        w = [cfg.max_len + 1] # including sos/eos
+        w = [cfg.max_len] # including sos/eos
         for i in range(len(f)):
             w.append(next_w(w[i], f[i], s[i]))
 
@@ -100,8 +100,7 @@ class SampleDiscriminator(nn.Module):
         self.criterion_bce = nn.BCELoss()
         #self.criterion_cs = F.cosine_similarity()
 
-    def forward(self, x, train=False):
-        self._check_train(train)
+    def forward(self, x):
         x = self._adaptive_embedding(x) # [bsz, max_len, embed_size]
         x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
 
@@ -145,13 +144,6 @@ class SampleDiscriminator(nn.Module):
         # w_attn : [n_layers, bsz, len]
         # layer_attn : [n_layers, bsz]
         return x_a, [w_attn, l_attn]
-
-    def _check_train(self, train):
-        if train:
-            self.train()
-            self.zero_grad()
-        else:
-            self.eval()
 
     def _adaptive_embedding(self, indices):
         if self.cfg.disc_s_in == 'embed':

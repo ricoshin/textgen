@@ -75,6 +75,8 @@ parser.add_argument('--with_attn', type=str2bool, default=True,
 parser.add_argument('--disc_s_in', type=str, default='embed',
                     choices=['embed', 'hidden', 'both'],
                     help='disc_s input type')
+parser.add_argument('--enc_disc', type=str2bool, default=False,
+                    help='weight sharing between encoder and disc_s')
 
 # Training Arguments
 parser.add_argument('--epochs', type=int, default=15,
@@ -129,7 +131,7 @@ parser.add_argument('--sample', action='store_true',
                     help='sample when decoding for generation')
 parser.add_argument('--N', type=int, default=5,
                     help='N-gram order for training n-gram language model')
-parser.add_argument('--log_interval', type=int, default=200,
+parser.add_argument('--log_interval', type=int, default=50,
                     help='interval to log autoencoder training results')
 
 # Test Arguments

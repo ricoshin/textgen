@@ -57,17 +57,18 @@ class WordAttention(nn.Module):
             self.add_module("attn_layer(%d)" % (i+1), attn_layer)
         if last_act == 'sparsemax':
             self.sparsemax = Sparsemax(1, in_width)
-        # compression layer (over multiple attention)
-        # self.comp_layer = MultiLinear4D(in_width, 1, dim=3, n_layers=2)
+        # compression layer (maxpool over multiple attention)
         self.pool_layer = nn.MaxPool2d((1, in_width))
         # matching layer (for same dimension output)
         self.match_layer = MultiLinear4D(in_chann, out_size, dim=1, n_layers=1)
 
-    def forward(self, x, mask):
-        # x : [bsz, ch, 1, w]
-        weights = []
-
+    def forward(self, x, x_enc, mask):
+        # x / x_enc : [bsz, ch, 1, w]
+        # x : feature for attention / x_enc : feature for encoder
+        assert(len(self.attn_layers) > 0)
+        assert(x.size() == x_enc.size())
         # multiple wordwise attention layers
+        weights = []
         for attn_layer in self.attn_layers:
             score = attn_layer(x) # [bsz, 1, 1, w]
             if self.last_act == 'softmax':
@@ -85,12 +86,12 @@ class WordAttention(nn.Module):
             weight = torch.cat(weights, dim=1) # [bsz, len(weights), 1, w]
             weight = torch.sum(weight, dim=1, keepdim=True) # [bsz, 1, 1, w]
         else:
+            import ipdb; ipdb.set_trace()
             weight = weights[0] # [bsz, 1, 1, w]
 
         # weighted feature
-        x = x * weight.expand_as(x) # [bsz, ch, 1, w]
+        x = x_enc * weight.expand_as(x) # [bsz, ch, 1, w]
         # compression layer
-        #x = self.comp_layer(x) # [bsz, ch, 1, 1]
         x = self.pool_layer(x) # [bsz, ch, 1, 1]
         # dimension matching layer
         x = self.match_layer(x) # [bsz, out_size, 1, 1]

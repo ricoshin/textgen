@@ -13,7 +13,7 @@ from test.evaluate import evaluate_sents
 from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
                                 train_gen, train_disc_c, train_disc_s,
                                 generate_codes, eval_gen_dec)
-from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+from train.train_helper import (load_test_data, print_ae_tf_sents,
                                 print_ae_fr_sents, print_gen_sents,
                                 ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor

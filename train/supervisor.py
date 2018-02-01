@@ -28,7 +28,7 @@ class Supervisor(object):
         self.dec_fname = path.join(self.cfg.log_dir, 'dec.ckpt')
         self.gen_fname = path.join(self.cfg.log_dir, 'gen.ckpt')
         self.disc_c_fname = path.join(self.cfg.log_dir, 'disc_c.ckpt')
-        if self.cfg.with_attn:
+        if self.cfg.with_attn and not self.cfg.enc_disc:
             self.disc_s_fname = path.join(self.cfg.log_dir, 'disc_s.ckpt')
 
         self.load()
@@ -93,7 +93,7 @@ class Supervisor(object):
             torch.save(self.net.gen.state_dict(), f)
         with open(self.disc_c_fname, 'wb') as f:
             torch.save(self.net.disc_c.state_dict(), f)
-        if self.cfg.with_attn:
+        if self.cfg.with_attn and not self.cfg.enc_disc:
             with open(self.disc_s_fname, 'wb') as f:
                 torch.save(self.net.disc_s.state_dict(), f)
 
@@ -102,7 +102,7 @@ class Supervisor(object):
         self.net.dec.load_state_dict(torch.load(self.dec_fname))
         self.net.gen.load_state_dict(torch.load(self.gen_fname))
         self.net.disc_c.load_state_dict(torch.load(self.disc_c_fname))
-        if self.cfg.with_attn:
+        if self.cfg.with_attn and not self.cfg.enc_disc:
             self.net.disc_s.load_state_dict(torch.load(self.disc_s_fname))
 
     def _init_gan_schedule(self):

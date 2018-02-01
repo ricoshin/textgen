@@ -1,98 +1,13 @@
 # -*- coding: utf-8 -*-
 from functools import partial
-import collections
+
 from collections import Counter
 import string
 import re
 import math
 import copy
-import nltk
 
-from nltk.translate.bleu_score import SmoothingFunction
-from nltk.translate.bleu_score import sentence_bleu
-from nltk.translate.bleu_score import corpus_bleu
-
-"""
-Below codes utilize nltk tools
-"""
-
-"""
-bleu score metric
-"""
-def truncate(sent):
-    def remove_punc(text):
-        exclude = set(string.punctuation)
-        return ''.join(ch for ch in text if ch not in exclude)
-    def remove_token(text):
-        text = text.replace('<eos>', '')
-        while text.find('<unk>') != -1:
-            text = text.replace('<unk>', '')
-        text = text.strip()
-        return text
-
-    def lower(text):
-        return text.lower()
-    return remove_punc(remove_token(lower(sent))).split()
-
-#hypotheses : ["sentence", "sentence", ...]
-#references : [["sentence", "sentence", ...], ["sent", "sent", ...], ...]
-#gram : 0=(default. cumulative n-gram score), 1~len(hyp[0])=(score with specified number of grams)
-def corp_bleu(references, hypotheses, gram=0, isSmooth=False):
-    ref = [truncate(s) for s in references]
-    hyp = [truncate(s) for s in hypotheses]
-
-    if gram >= len(hyp[0]): # this doesn't strictly perform case handling
-        print('number of gram exceeds the length of sentence')
-        return 0
-
-    if isSmooth == True:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] = 1
-            return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
-        else:
-            return corpus_bleu([ref]*len(hyp), hyp, smoothing_function=SmoothingFunction().method3)
-    else:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] =1
-            return corpus_bleu([ref]*len(hyp), hyp, weights=w, auto_reweigh=False)
-        else:
-            return corpus_bleu([ref]*len(hyp), hyp)
-
-#input : ["sentence"]
-#This is early version, so it has few functionalities
-def sent_bleu(reference, hypothesis, isSmooth=False):
-    ref = truncate(reference)
-    hyp = truncate(hypothesis)
-    if isSmooth == True:
-        return sentence_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
-    else:
-        return sentence_bleu(ref, hyp)
-
-#input : ref = ["sent", "sent", ...], hyp = ["sent"]
-def corp_to_sent_bleu(reference, hypothesis, gram=0, isSmooth=False):
-    ref = [truncate(s) for s in reference]
-    hyp = truncate(hypothesis)
-
-    if gram >= len(hyp):
-        print('number of gram exceeds the length of sentence')
-        return 0
-
-    if isSmooth == True:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] = 1
-            return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False, smoothing_function=SmoothingFunction().method3)
-        else:
-            return sentence_bleu(ref, hyp, smoothing_function=SmoothingFunction().method3)
-    else:
-        if gram !=0:
-            w=[0]*4
-            w[gram-1] = 1
-            return sentence_bleu(ref, hyp, weights=w, auto_reweigh=False)
-        else:
-            return sentence_bleu(ref, hyp)
+from train.train_helper import ResultPackage
 
 """
 Below codes are originally from TextVAE, multiwords branch, evaluate.py
@@ -145,7 +60,8 @@ def ngram(n, iterable):
 
 def bleu_ngram(n, candidate, references):
     pred = [' '.join(window) for window in ngram(n, candidate)]
-    truths = [[' '.join(window) for window in ngram(n, reference)] for reference in references]
+    truths = [[' '.join(window) for window in ngram(n, reference)]
+              for reference in references]
 
     ref_counts = Counter()
     for truth in truths:
@@ -158,11 +74,10 @@ def bleu_ngram(n, candidate, references):
         return 0.0
     return num_same / len(pred)
 
-# Warning : this funcion may output wrong result
-# This function has quite different(or wrong) algorithm compared to nltk
 def bleu_score(prediction, ground_truths, num_ngrams):
     prediction_tokens = normalize_answer(prediction).split()
-    ground_truths_tokens = [normalize_answer(ground_truth).split() for ground_truth in ground_truths]
+    ground_truths_tokens = [normalize_answer(ground_truth).split()
+                            for ground_truth in ground_truths]
 
     score = 0
     any_match = 0
@@ -178,9 +93,7 @@ def bleu_score(prediction, ground_truths, num_ngrams):
     # brevity penalty
     num_pred = len(prediction_tokens)
     num_truth = min(len(truth) for truth in ground_truths_tokens)
-    if num_pred ==0:
-        penalty = 0
-    elif 1 <= num_pred <= num_truth:
+    if 1 <= num_pred <= num_truth:
         penalty = math.exp(1 - 1.0 * num_truth / num_pred)
     else:
         penalty = 1
@@ -261,10 +174,7 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 # predictions : list[string]. for example, ["he is a boy", "she went home"]
 # output : for example, {'meteor': 8.3064, 'bleu': 28.43696, 'em': 0.0, 'f1': 14.9253}
 # sample usage : print('ae eval:', eval.simple_evaluate(real_data, ae_data))
-def evaluate_file(ref_dir, predictions):
-    f = open(ref_dir, 'r')
-    reference = f.readlines()
-    f.close()
+def evaluate_sents(reference, predictions):
     metrics = { # p = pred, g = ref
         'em': lambda p, g: metric_max_over_ground_truths(exact_match_score, p, g),
         'f1': lambda p, g: metric_max_over_ground_truths(f1_score, p, g),
@@ -279,7 +189,7 @@ def evaluate_file(ref_dir, predictions):
             scores[k] += metrics[k](pred, [ref])
     for k in metrics:
         scores[k] = 100.0 * scores[k] / total
-    return scores
+    return ResultPackage('Evaluation', scores)
 
 # references : list[string]. for example, ["he is a boy", "she went home"]
 # predictions : list[string]. for example, ["he is a boy", "she went home"]

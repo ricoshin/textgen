@@ -45,7 +45,7 @@ class WordEmbedding(nn.Module):
         else:
             # indices : [baz, max_len, vocab_size]
             assert(len(indices.size()) == 3)
-            assert(indices.size(1) == self.cfg.max_len+1)
+            assert(indices.size(1) == self.cfg.max_len)
             assert(indices.size(2) == self.cfg.vocab_size)
             return self.soft_embed(indices)
 
@@ -55,8 +55,8 @@ class WordEmbedding(nn.Module):
         max_len = id_onehots.size(1)
         vocab_size = id_onehots.size(2)
         embed_size = self.embed.weight.size(1)
-
-        id_onehots = id_onehots.view(-1, vocab_size) # [bsz*max_len, vocab_size]
+        id_onehots = id_onehots.contiguous().view(-1, vocab_size)
+        # id_onehots.size() : [bsz*max_len, vocab_size]
         embeddings = torch.mm(id_onehots, self.embed.weight)
         embeddings = embeddings.view(-1, max_len, embed_size)
         return embeddings
