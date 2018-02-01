@@ -4,7 +4,8 @@ import os
 from loader.book_corpus import BookCorpusDataset
 from loader.preprocess import preprocess_data_vocab, preprocess_simpleqa, split_simple_questions
 from test.test import test
-from train.train import train
+#from train.train import train
+from train.train_with_kenlm import train
 from train.network import Network
 from utils.parser import parser
 from utils.utils import Config, set_logger, prepare_paths
