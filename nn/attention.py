@@ -86,7 +86,7 @@ class WordAttention(nn.Module):
             weight = torch.cat(weights, dim=1) # [bsz, len(weights), 1, w]
             weight = torch.sum(weight, dim=1, keepdim=True) # [bsz, 1, 1, w]
         else:
-            import ipdb; ipdb.set_trace()
+            import pdb; pdb.set_trace()
             weight = weights[0] # [bsz, 1, 1, w]
 
         # weighted feature

@@ -9,7 +9,7 @@ from utils.utils import StopWatch
 log = logging.getLogger('main')
 
 
-def process_main_corpus(cfg):
+def process_main_corpus(cfg, tokenizer):
     StopWatch.go('Total')
     if (not os.path.exists(cfg.corpus_data_path)
         or not os.path.exists(cfg.corpus_vocab_path)
@@ -25,22 +25,23 @@ def process_main_corpus(cfg):
         else:
             corpus_proc = CorpusMultiProcessor(file_path=cfg.corpus_path,
                                                min_len=cfg.min_len,
-                                               max_len=cfg.max_len)
+                                               max_len=cfg.max_len,
+                                               tokenizer=tokenizer)
             sents, counter = corpus_proc.process()
 
         # pretrained embedding initialization if necessary
         if cfg.load_glove:
             print('Loading GloVe pretrained embeddings...')
             glove_proc = GloveMultiProcessor(glove_dir=cfg.glove_dir,
-                                            vector_size=cfg.embed_size)
+                                             vector_size=cfg.embed_size)
             word2vec = glove_proc.process()
         else:
             word2vec = None
 
-        vocab = Vocab(counter=counter, max_size=cfg.vocab_size)
-        vocab.generate_embeddings(embed_dim=cfg.embed_size, init_embed=word2vec)
+        vocab = Vocab(counter=counter, max_size=cfg.vocab_size,
+                      specials=['<pad>', '<sos>', '<eos>', '<unk>'])
+        vocab.generate_embedding(embed_dim=cfg.embed_size, init_embed=word2vec)
         sents = vocab.numericalize_sents(sents)
-
 
         with StopWatch('Saving text (Main corpus)'):
             np.savetxt(cfg.corpus_data_path, sents, fmt="%s")
@@ -55,7 +56,40 @@ def process_main_corpus(cfg):
     return vocab
 
 
-def process_pos_corpus(cfg, main_vocab):
+def process_pos_corpus(cfg, tokenizer):
+    StopWatch.go('Total')
+
+    if (not os.path.exists(cfg.pos_data_path)
+        or not os.path.exists(cfg.pos_vocab_path)
+        or cfg.reload_prepro):
+
+        # load & process pos tags
+        tag_proc = CorpusMultiProcessor(file_path=cfg.pos_path,
+                                        min_len=cfg.min_len,
+                                        max_len=cfg.max_len,
+                                        tokenizer=tokenizer)
+        tags, tag_counter = tag_proc.process()
+
+        # make vocab
+        tags_vocab = Vocab(counter=tag_counter, specials=['<eos>'])
+        tags_ids = tags_vocab.numericalize_sents(tags)
+
+        with StopWatch('Saving text (POS tagging corpus)'):
+            np.savetxt(cfg.pos_data_path, tags_ids, fmt="%s")
+            log.info("Saved preprocessed POS tags: %s", cfg.pos_data_path)
+
+        with StopWatch('Pickling POS vocab'):
+            tags_vocab.pickle(cfg.pos_vocab_path)
+            log.info("Saved POS vocabulary: %s" % cfg.pos_vocab_path)
+    else:
+        log.info('Previously processed POS data files will be used!')
+        tags_vocab = Vocab.unpickle(cfg.pos_vocab_path)
+
+    StopWatch.stop('Total')
+    return tags_vocab
+
+
+def process_pos_corpus_with_main_vocab(cfg, main_vocab):
     StopWatch.go('Total')
 
     if (not os.path.exists(cfg.pos_sent_data_path)
@@ -70,7 +104,7 @@ def process_pos_corpus(cfg, main_vocab):
 
         tag_proc = CorpusMultiProcessor(file_path=cfg.pos_tag_path)
         tags, tag_counter = tag_proc.process()
-        tags_vocab = Vocab(counter=tag_counter, specials=False)
+        tags_vocab = Vocab(counter=tag_counter, specials=['<eos>'])
         tags_ids = tags_vocab.numericalize_sents(tags)
 
         with StopWatch('Saving text (POS tagging corpus)'):

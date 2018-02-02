@@ -19,7 +19,7 @@ class Decoder(nn.Module):
         self.vocab = vocab
         self.grad_norm = None
         # word embedding
-        self.embed = WordEmbedding(cfg, vocab.embed_mat)
+        self.embed = WordEmbedding(cfg, vocab.embed)
 
     def forward(self, *input):
         raise NotImplementedError
@@ -33,10 +33,6 @@ class Decoder(nn.Module):
 class DecoderRNN(Decoder):
     def __init__(self, cfg, vocab):
         super(DecoderRNN, self).__init__(cfg, vocab)
-        self.start_symbols = to_gpu(
-            cfg.cuda, Variable(torch.ones(10, 1).long()))
-
-
 
         decoder_input_size = cfg.embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
@@ -115,7 +111,7 @@ class DecoderRNN(Decoder):
         try:
             augmented_embeddings = torch.cat([embeddings, all_hidden], 2)
         except:
-            import ipdb; ipdb.set_trace()
+            import pdb; pdb.set_trace()
         packed_embeddings = pack_padded_sequence(input=augmented_embeddings,
                                                  lengths=lengths,
                                                  batch_first=True)

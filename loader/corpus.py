@@ -18,17 +18,18 @@ log = logging.getLogger('main')
 
 
 class CorpusMultiProcessor(LargeFileMultiProcessor):
-    def __init__(self, file_path, num_process=None,
-                 min_len=0, max_len=999, tokenizer='spacy'):
+    def __init__(self, file_path, num_process=None, min_len=1, max_len=999,
+                 lower=False, tokenizer='spacy'):
         # skip out too short/long sentences
         self.min_len = min_len
         self.max_len = max_len
+        self.lower = lower
         self.tokenizer = tokenizer
         super(CorpusMultiProcessor, self).__init__(file_path, num_process)
 
     @classmethod
     def from_multiple_files(cls, file_paths, num_process=None,
-                            min_len=0, max_len=999, tokenizer='spacy'):
+                            min_len=1, max_len=999, tokenizer='spacy'):
         if not isinstance(file_paths, (list, tuple)):
             raise TypeError('File_paths must be list or tuple')
         processors = list()
@@ -79,10 +80,13 @@ class CorpusMultiProcessor(LargeFileMultiProcessor):
             for src, dst in replaces:
                 line = line.replace(src, dst)
             # tokenize line & count words
-            tokens = tokenizer(line.strip())
+            tokens = tokenizer(line)
             if len(tokens) > self.max_len or len(tokens) < self.min_len:
                 return None
-            return [token.lower() for token in tokens]
+            if self.lower:
+                return [token.lower() for token in tokens]
+            else:
+                return tokens
 
         with open(self.file_path, 'r') as f:
             f.seek(start)
@@ -105,6 +109,10 @@ class CorpusMultiProcessor(LargeFileMultiProcessor):
             return lambda s: [tok.text for tok in spacy_en.tokenizer(s)]
         elif tokenizer == "nltk": # NOTE : not working on Python 3.6.x
             return lambda s: [tok for tok in nltk.word_tokenize(s)]
+        elif tokenizer == "split":
+            return lambda s: s.split()
+        else:
+            raise Exception("Unknown tokenizer!")
 
 
 class CorpusDataset(Dataset):
@@ -121,11 +129,30 @@ class CorpusDataset(Dataset):
         #source = tokens
         return [int(x.strip(',')) for x in line.strip('[]\n').split()]
 
+
+class CorpusPOSDataset(Dataset):
+    def __init__(self, sent_path, tag_path, vocab=None):
+        self.sent_path = sent_path
+        self.tag_path = tag_path
+        self.getline_fn = linecache.getline
+
+    def __len__(self):
+        return LineCounter.count(self.sent_path)
+
+    def __getitem__(self, idx):
+        sent = self.getline_fn(self.sent_path, idx+1)
+        tag = self.getline_fn(self.tag_path, idx+1)
+        sent = [int(x.strip(',')) for x in sent.strip('[]\n').split()]
+        tag = [int(x.strip(',')) for x in tag.strip('[]\n').split()]
+        return sent, tag
+
+
 class Batch(object):
-    def __init__(self, source, target, length):
+    def __init__(self, source, target, length, postag=None):
         self.__source = source
         self.__target = target
         self.__length = length
+        self.__postag = postag
 
     @property
     def src(self):
@@ -139,48 +166,65 @@ class Batch(object):
     def len(self):
         return self.__length
 
+    @property
+    def pos(self):
+        if self.__postag is None:
+            raise Exception("POS tage has not been initialzed!")
+        else:
+            return self.__postag
+
     def variable(self, volatile=False):
         source = Variable(self.__source, volatile=volatile)
         target = Variable(self.__target, volatile=volatile)
-        return Batch(source, target, self.__length)
+        if self.__postag is not None:
+            postag = Variable(self.__postag, volatile=volatile)
+        else:
+            postag = None
+        return Batch(source, target, self.__length, postag)
 
     def cuda(self, cuda=True):
         if cuda:
             source = self.__source.cuda()
             target = self.__target.cuda()
+            if self.__postag is not None:
+                postag = self.__postag.cuda()
+            else:
+                postag = None
         else:
             source = self.__source
             target = self.__target
-        return Batch(source, target, self.__length)
+            if self.__postag is not None:
+                postag = self.__postag
+            else:
+                postag = None
+        return Batch(source, target, self.__length, postag)
 
 
 class BatchingDataset(object):
     def __init__(self, cfg, vocab, gpu=False):
         self.cfg = cfg
         self.gpu = gpu
-        self.pad_id = vocab.PAD_ID
-        self.sos_id = vocab.SOS_ID
-        self.eos_id = vocab.EOS_ID
+        self.vocab = vocab
 
-    def __call__(self, sample_list):
-        return self.process(sample_list)
+    def __call__(self, batch):
+        return self.process(batch)
 
-    def process(self, sample_list):
+    def process(self, batch):
         source = []
         target = []
-        lengths = [(len(sample)) for sample in sample_list]
+        lengths = [(len(sample)) for sample in batch]
         batch_max_len = max(lengths)
 
         # Sort samples in decending order in order to use pack_padded_sequence
-        if len(sample_list) > 1:
-            sample_list, lengths = self._length_sort(sample_list, lengths)
+        if len(batch) > 1:
+            batch, lengths = self._length_sort(batch, lengths)
 
-        for sample in sample_list:
+        for sample in batch:
             # pad & sos/eos
             num_pads = batch_max_len - len(sample)
-            pads = [self.pad_id] * num_pads
+            pads = [self.vocab.PAD_ID] * num_pads
             x = sample + pads
-            y = sample + [self.eos_id] + pads
+            y = sample + [self.vocab.EOS_ID] + pads
 
             source.append(x)
             target.append(y)
@@ -192,7 +236,6 @@ class BatchingDataset(object):
             source = source.cuda()
             target = target.cuda()
 
-
         return Batch(source, target, lengths)
 
     def _length_sort(self, items, lengths, descending=True):
@@ -200,6 +243,50 @@ class BatchingDataset(object):
         items.sort(key=lambda x: x[1], reverse=True)
         items, lengths = zip(*items)
         return list(items), list(lengths)
+
+
+class BatchingPOSDataset(BatchingDataset):
+    def __init__(self, cfg, vocab, vocab_pos, gpu=False):
+        super(BatchingPOSDataset, self).__init__(cfg, vocab, gpu)
+        self.vocab_pos = vocab_pos
+
+    def process(self, batch):
+        source = []
+        target = []
+        postag = []
+        lengths = []
+        for sent, pos in batch:
+            # sent and pos length must be the same
+            assert(len(sent) == len(pos))
+            lengths.append(len(sent))
+        batch_max_len = max(lengths)
+
+        # Sort samples in decending order in order to use pack_padded_sequence
+        if len(batch) > 1:
+            batch, lengths = self._length_sort(batch, lengths)
+
+        for sent, pos in batch:
+            # pad & sos/eos
+            num_pads = batch_max_len - len(sent)
+            pads = [self.vocab.PAD_ID] * num_pads
+            src = sent + pads
+            tar = sent + [self.vocab.EOS_ID] + pads
+            pos = pos + [self.vocab_pos.EOS_ID] + pads # eos : for matching step length
+
+            source.append(src)
+            target.append(tar)
+            postag.append(pos)
+
+        source = torch.LongTensor(np.array(source))
+        target = torch.LongTensor(np.array(target)).view(-1)
+        postag = torch.LongTensor(np.array(postag)).view(-1)
+
+        if self.gpu:
+            source = source.cuda()
+            target = target.cuda()
+            postag = postag.cuda()
+
+        return Batch(source, target, lengths, postag)
 
 
 class BatchIterator(object):

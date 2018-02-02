@@ -25,7 +25,7 @@ class SampleDiscriminator(nn.Module):
         self.cfg = cfg
         self.in_c = in_chann = self._get_in_c_size()
         if cfg.disc_s_in == 'embed':
-            self.embedding = WordEmbedding(cfg, vocab.embed_mat)
+            self.embedding = WordEmbedding(cfg, vocab.embed)
 
         def next_w(in_size, f_size, s_size):
             # in:width, f:filter, s:stride

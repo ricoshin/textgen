@@ -11,26 +11,19 @@ log = logging.getLogger('main')
 
 
 class Vocab(object):
-    # static variables
-    PAD_ID = 0
-    SOS_ID = 1
-    EOS_ID = 2
-    UNK_ID = 3
-    SPECIALS = ['<pad>', '<sos>', '<eos>', '<unk>']
-
-    def __init__(self, counter, specials=True, max_size=None, min_freq=None):
-
+    def __init__(self, counter, specials=None, max_size=None, min_freq=None):
         log.info('\nBuilding vocabulary...')
         self.word2idx = dict()
         self.idx2word = list()
-        self.embed_mat = None
+        self._embed = None
+        self._update_id_attr(specials)
 
         if specials:
             # update special tokens
-            specials_ = {token: idx for idx, token in enumerate(Vocab.SPECIALS)}
+            specials_ = {token: idx for idx, token in enumerate(specials)}
             self.word2idx.update(specials_)
-            self.idx2word = Vocab.SPECIALS.copy()
-            self.specials = Vocab.SPECIALS
+            self.idx2word = specials.copy()
+            self.specials = specials
         else:
             self.specials = []
 
@@ -58,6 +51,20 @@ class Vocab(object):
     def __len__(self):
         return len(self.word2idx)
 
+    @property
+    def embed(self):
+        if self._embed is None:
+            raise Exception("Embeddings has not been generated.\n"
+                            "Run generated_embedding before call Vocab.embed!")
+        else:
+            return self._embed
+
+    def _update_id_attr(self, specials):
+        # make id attributes e.g. PAD_ID, EOS_ID, ...
+        specials = {special.strip("<>").upper() + '_ID' : i
+                    for i, special in enumerate(specials)}
+        self.__dict__.update(specials)
+
     def pickle(self, file_path):
         log.info('Pickling : %s' % file_path)
         with open(file_path, 'wb') as f:
@@ -69,15 +76,16 @@ class Vocab(object):
         with open(file_path, 'rb') as f:
             return pickle.load(f)
 
-    def generate_embeddings(self, embed_dim, init_embed=None):
+    def generate_embedding(self, embed_dim, init_embed=None):
         # standard gaussian distribution initialization
-        self.embed_mat = np.random.normal(size=(len(self), embed_dim))
+        self._embed = np.random.normal(size=(len(self), embed_dim))
 
         if init_embed is not None:
             for word, idx in self.word2idx.items():
-                self.embed_mat[idx] = init_embed.get(word, self.embed_mat[idx])
+                self._embed[idx] = init_embed.get(word, self._embed[idx])
         # embedding of <pad> token should be zero
-        self.embed_mat[self.word2idx['<pad>']] = 0
+        self._embed[self.word2idx['<pad>']] = 0
+
 
     def numericalize_sents(self, sents):
         # convert words in sentences to indices

@@ -242,7 +242,7 @@ class EncoderDisc(Encoder):
         try:
             w_ctx = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
         except:
-            import ipdb; ipdb.set_trace()
+            import pdb; pdb.set_trace()
         # layerwise attention
         l_ctx, l_attn = self.layer_attn(w_ctx)
         # ctx : [bsz, n_mat, 1, 1]

@@ -19,7 +19,7 @@ class Encoder(nn.Module):
         self.noise_radius = cfg.noise_radius
         # Vocabulary embedding
         self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
-        self.embed.weight.data.copy_(torch.from_numpy(vocab.embed_mat))
+        self.embed.weight.data.copy_(torch.from_numpy(vocab.embed))
         if cfg.load_glove and cfg.fix_embed:
             self.embed.weight.requires_grad = False
 

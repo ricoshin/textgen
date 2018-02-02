@@ -3,7 +3,7 @@ import logging
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from loader.corpus import BatchingDataset, BatchIterator
+from loader.corpus import BatchingDataset, BatchingPOSDataset, BatchIterator
 from models.encoder import EncoderRNN
 from models.enc_disc import EncoderDisc, EncoderDiscModeWrapper
 from models.decoder import DecoderRNN
@@ -15,19 +15,20 @@ log = logging.getLogger('main')
 
 
 class Network(object):
-    def __init__(self, cfg, book_corpus, vocab):
+    def __init__(self, cfg, corpus, vocab, vocab_pos=None):
         self.cfg = cfg
         self.vocab = vocab
         self.ntokens = len(vocab)
 
-        batching_dataset = BatchingDataset(cfg, vocab)
-        data_loader = DataLoader(book_corpus, cfg.batch_size, shuffle=True,
+        if cfg.data_name == 'pos':
+            batching_dataset = BatchingPOSDataset(cfg, vocab, vocab_pos)
+        else:
+            batching_dataset = BatchingDataset(cfg, vocab)
+
+        data_loader = DataLoader(corpus, cfg.batch_size, shuffle=True,
                                  num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
 
-        #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
-        #                                shuffle=False, num_workers=4,
-        #                                collate_fn=batching_dataset)
         self.data_ae = BatchIterator(data_loader, cfg.cuda)
         self.data_gan = BatchIterator(data_loader, cfg.cuda)
         self.data_eval = BatchIterator(data_loader, cfg.cuda, volatile=True)

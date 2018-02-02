@@ -129,12 +129,20 @@ def prepare_paths(cfg):
         else:
             cfg.corpus_path = os.path.join(cfg.data_dir, 'train.txt')
 
+    elif cfg.data_name == "pos":
+        if cfg.small:
+            raise Exception("There's no small version of pos dataset!")
+        else:
+            cfg.corpus_path = os.path.join(cfg.data_dir, 'train/sentences.txt')
+            cfg.pos_path = os.path.join(cfg.data_dir, 'train/tags.txt')
+
     # preprocessed file path
     cfg.corpus_data_path = os.path.join(cfg.prepro_dir, "data.txt")
     cfg.corpus_vocab_path = os.path.join(cfg.prepro_dir, "vocab.pickle")
-    cfg.pos_sent_data_path = os.path.join(cfg.prepro_dir, "data_pos_sent.txt")
-    cfg.pos_tag_data_path = os.path.join(cfg.prepro_dir, "data_pos_tag.txt")
-    cfg.pos_vocab_path = os.path.join(cfg.prepro_dir, "vocab_pos.pickle")
+
+    if cfg.data_name == "pos":
+        cfg.pos_data_path = os.path.join(cfg.prepro_dir, "data_pos.txt")
+        cfg.pos_vocab_path = os.path.join(cfg.prepro_dir, "vocab_pos.pickle")
 
     # make dirs if not exists
     if not os.path.exists(cfg.data_dir):

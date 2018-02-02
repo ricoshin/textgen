@@ -18,7 +18,7 @@ class Encoder(nn.Module):
         self.noise_radius = cfg.noise_radius
         self.grad_norm = None
         # word embedding
-        self.embed = WordEmbedding(cfg, vocab.embed_mat)
+        self.embed = WordEmbedding(cfg, vocab.embed)
 
     def forward(self, *input):
         raise NotImplementedError
