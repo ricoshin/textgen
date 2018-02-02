@@ -1,3 +1,4 @@
+import collections
 import logging
 import numpy as np
 import os
@@ -8,21 +9,18 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from models.autoencoder import Autoencoder
-from models.code_disc import CodeDiscriminator
-from models.generator import Generator
-from models.sample_disc import SampleDiscriminator
-
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae, train_dec, train_gen,
-                                train_disc_c, train_disc_s)
-from train.train_helper import (load_test_data, append_pads, print_ae_sents,
-                                print_gen_sents, ids_to_sent_for_eval,
-                                halve_attns, print_attns)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
+                                train_gen, train_disc_c, train_disc_s,
+                                generate_codes, eval_gen_dec)
+from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
+                                print_ae_fr_sents, print_gen_sents,
+                                ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
 log = logging.getLogger('main')
+dict = collections.OrderedDict
 
 from test.evaluate_nltk import truncate, corp_bleu
 from test.bleu_variation import leakgan_bleu, urop_bleu
@@ -79,7 +77,7 @@ def train(net):
     log.info("Training start!")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
-    fixed_noise = net.gen.make_noise(cfg, cfg.eval_size) # for generator
+    fixed_noise = net.gen.make_noise(cfg.eval_size) # for generator
     writer = SummaryWriter(cfg.log_dir)
     sv = Supervisor(net)
     test_q_sents, test_a_sents = load_test_data(cfg)
@@ -92,8 +90,9 @@ def train(net):
                 if sv.epoch_stop():
                     break  # end of epoch
                 batch = net.data_ae.next()
-                rp_ae = train_ae(cfg, net.ae, batch)
-                net.optim_ae.step()
+                rp_ae = train_ae(cfg, net, batch)
+                net.optim_enc.step()
+                net.optim_dec.step()
                 sv.inc_batch_step()
 
             # train gan
@@ -133,7 +132,7 @@ def train(net):
             # exponentially decaying noise on autoencoder
             # noise_raius = 0.2(default)
             # noise_anneal = 0.995(default) NOTE: fix this!
-            net.ae.noise_radius = net.ae.noise_radius * cfg.noise_anneal
+            net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
             # Autoencoder
             batch = net.data_eval.next()
@@ -181,12 +180,12 @@ def train(net):
                 bleu = corp_bleu(references=test_a_sents[:min(len(fake_sents)*50, len(test_a_sents))],
                     hypotheses=fake_sents, gram=4)
                 log.info('nltk bleu-{}: {}'.format(4, bleu))
-
+                """
                 leakgan = leakgan_bleu(test_a_sents[:min(len(fake_sents)*50, len(test_a_sents))], fake_sents)
                 urop = urop_bleu(test_a_sents[:min(len(fake_sents)*50, len(test_a_sents))], fake_sents)
                 log.info('leakgan_bleu: '+str(leakgan))
                 log.info('urop_bleu: '+str(urop))
-                """
+
                 ppl = train_lm(eval_data=test_a_sents, gen_data = fake_sents,
                     vocab = net.vocab,
                     save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, sv.batch_step),
