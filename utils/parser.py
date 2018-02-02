@@ -15,7 +15,7 @@ parser.add_argument('--prepro_dir', type=str, default='prepro',
 parser.add_argument('--data_dir', type=str, default='data',
                     help='location of the datasets')
 parser.add_argument('--data_name', type=str, default='snli',
-                    choices=['snli','books', 'simpleqa'], help='name of dataset')
+                    choices=['snli','books', 'simple_questions'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')
 parser.add_argument('--out_dir', type=str, default='out',

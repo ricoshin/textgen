@@ -79,7 +79,7 @@ class SampleDiscriminator(nn.Module):
         # wordwise attention layers
         self.word_attns = []
         for i in range(n_conv - 1):
-            word_attn = WordAttention(c_[i], w_[i], n_mat, n_attns[i],
+            word_attn = WordAttention(cfg, c_[i], w_[i], n_mat, n_attns[i],
                                       cfg.word_temp, last_act='softmax')
             self.word_attns.append(word_attn)
             self.add_module("WordAttention(%d)" % (i+1), word_attn)

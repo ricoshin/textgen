@@ -25,11 +25,10 @@ if __name__ == '__main__':
     log = logging.getLogger('main')
 
     # split simple_questions dataset file
-    split_simple_questions()
+    split_simple_questions(cfg.data_dir)
 
     # Preprocessing
-    preprocess_simpleqa(cfg)
-    vocab = preprocess_vocab(cfg)
+    vocab = preprocess_simpleqa(cfg)
 
     # Load dataset
     train_q_data = BookCorpusDataset(cfg.train_q_data_filepath)

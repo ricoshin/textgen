@@ -118,7 +118,7 @@ def prepare_paths(cfg):
                 [*map(lambda fn: os.path.join(cfg.data_dir, fn), filenames)]
             cfg.test_filepath = None
 
-    elif cfg.data_name == "snli" or cfg.data_name == "simpleqa":
+    elif cfg.data_name == "snli" or cfg.data_name == "simple_questions":
         if cfg.small:
             raise Exception("There's no small version of snli dataset!")
         else:

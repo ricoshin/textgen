@@ -3,7 +3,7 @@ import logging
 import torch.optim as optim
 from torch.utils.data import DataLoader
 
-from dataloader.book_corpus import BatchingDataset, BatchIterator
+from loader.book_corpus import BatchingDataset, BatchIterator
 from models.encoder import Encoder
 from models.decoder import Decoder
 from models.disc_code import CodeDiscriminator
@@ -32,7 +32,7 @@ class Network(object):
         #                                collate_fn=batching_dataset)
         self.data_ae = BatchIterator(train_q_data_loader, cfg.cuda)
         self.data_gan = BatchIterator(train_a_data_loader, cfg.cuda)
-        self.data_eval = BatchIterator(traom_q_data_loader, cfg.cuda, volatile=True)
+        self.data_eval = BatchIterator(train_q_data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
         # Autoencoder
