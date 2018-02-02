@@ -77,6 +77,8 @@ parser.add_argument('--disc_s_in', type=str, default='embed',
                     help='disc_s input type')
 parser.add_argument('--enc_disc', type=str2bool, default=True,
                     help='weight sharing between encoder and disc_s')
+parser.add_argument('--pos_tag', type=str2bool, default=True,
+                    help='determine whether the model use POS tags')
 
 # Training Arguments
 parser.add_argument('--epochs', type=int, default=15,

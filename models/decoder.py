@@ -34,6 +34,9 @@ class DecoderRNN(Decoder):
     def __init__(self, cfg, vocab):
         super(DecoderRNN, self).__init__(cfg, vocab)
 
+        #if cfg.pos_tag:
+        #    self.pos_tagger = nn.LSTM(input_size=)
+
         decoder_input_size = cfg.embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
                                hidden_size=cfg.hidden_size,

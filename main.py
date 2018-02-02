@@ -2,7 +2,7 @@ import logging
 import os
 
 from loader.corpus import CorpusDataset, CorpusPOSDataset
-from loader.process import process_main_corpus, process_pos_corpus
+from loader.process import process_main_corpus, process_corpus_tag
 from test.test import test
 from train.train import train
 from train.network import Network
@@ -25,9 +25,13 @@ if __name__ == '__main__':
     log = logging.getLogger('main')
 
     # Preprocessing & make dataset
-    if cfg.data_name == 'pos':
-        vocab = process_main_corpus(cfg, 'split')
-        vocab_pos = process_pos_corpus(cfg, 'split')
+    # if cfg.data_name = 'pos':
+    #     vocab = process_main_corpus(cfg, 'split')
+    #     vocab_pos = process_pos_corpus(cfg, 'split')
+    #     corpus = CorpusPOSDataset(cfg.corpus_data_path,
+    #                               cfg.pos_data_path)
+    if cfg.pos_tag:
+        vocab, vocab_pos = process_corpus_tag(cfg)
         corpus = CorpusPOSDataset(cfg.corpus_data_path,
                                   cfg.pos_data_path)
     else:

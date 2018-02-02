@@ -116,7 +116,7 @@ def prepare_paths(cfg):
     if cfg.data_name == "books":
         if cfg.small:
             cfg.prepro_dir += "_small"
-            filename = "books_100k.txt"
+            filename = "books_1k.txt"
             cfg.corpus_path = os.path.join(cfg.data_dir, filename)
         else:
             filenames = ["books_large_p1.txt", "books_large_p2.txt"]
@@ -140,7 +140,7 @@ def prepare_paths(cfg):
     cfg.corpus_data_path = os.path.join(cfg.prepro_dir, "data.txt")
     cfg.corpus_vocab_path = os.path.join(cfg.prepro_dir, "vocab.pickle")
 
-    if cfg.data_name == "pos":
+    if cfg.pos_tag:
         cfg.pos_data_path = os.path.join(cfg.prepro_dir, "data_pos.txt")
         cfg.pos_vocab_path = os.path.join(cfg.prepro_dir, "vocab_pos.pickle")
 

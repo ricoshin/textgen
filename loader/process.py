@@ -2,7 +2,7 @@ import numpy as np
 import logging
 import os
 
-from loader.corpus import CorpusMultiProcessor
+from loader.multi_proc import CorpusMultiProcessor, CorpusTagMultiProcessor
 from loader.vocab import Vocab, GloveMultiProcessor
 from utils.utils import StopWatch
 
@@ -87,6 +87,67 @@ def process_pos_corpus(cfg, tokenizer):
 
     StopWatch.stop('Total')
     return tags_vocab
+
+
+def process_corpus_tag(cfg):
+    StopWatch.go('Total')
+
+    if (not os.path.exists(cfg.corpus_data_path)
+        or not os.path.exists(cfg.corpus_vocab_path)
+        or cfg.reload_prepro):
+
+        log.info('Start preprocessing data and building vocabulary!')
+        if isinstance(cfg.corpus_path, (list, tuple)):
+            corpus_proc = CorpusTagMultiProcessor.from_multiple_files(
+                file_paths=cfg.corpus_path,
+                min_len=cfg.min_len,
+                max_len=cfg.max_len)
+            tokens, tags, token_cnt, tag_cnt = \
+                CorpusTagMultiProcessor.multi_process(corpus_proc)
+        else:
+            corpus_proc = CorpusTagMultiProcessor(file_path=cfg.corpus_path,
+                                                  min_len=cfg.min_len,
+                                                  max_len=cfg.max_len)
+            tokens, tags, token_cnt, tag_cnt = corpus_proc.process()
+
+        # pretrained embedding initialization if necessary
+        if cfg.load_glove:
+            print('Loading GloVe pretrained embeddings...')
+            glove_proc = GloveMultiProcessor(glove_dir=cfg.glove_dir,
+                                             vector_size=cfg.embed_size)
+            word2vec = glove_proc.process()
+        else:
+            word2vec = None
+
+        # build sentence vocabulary & convert tokens to ids
+        token_vocab = Vocab(counter=token_cnt, max_size=cfg.vocab_size,
+                            specials=['<pad>', '<sos>', '<eos>', '<unk>'])
+        token_vocab.generate_embedding(embed_dim=cfg.embed_size,
+                                       init_embed=word2vec)
+        tokens_ids = token_vocab.numericalize_sents(tokens)
+
+        # build tag vocabulary & convert tags to ids
+        tag_vocab = Vocab(counter=tag_cnt, specials=['<eos>'])
+        tags_ids = tag_vocab.numericalize_sents(tags)
+
+        with StopWatch('Saving text (Main corpus)'):
+            np.savetxt(cfg.corpus_data_path, tokens_ids, fmt="%s")
+            log.info("Saved preprocessed corpus: %s", cfg.corpus_data_path)
+            np.savetxt(cfg.pos_data_path, tags_ids, fmt="%s")
+            log.info("Saved preprocessed POS tags: %s", cfg.pos_data_path)
+        with StopWatch('Pickling vocab'):
+            token_vocab.pickle(cfg.corpus_vocab_path)
+            log.info("Saved corpus vocabulary: %s" % cfg.corpus_vocab_path)
+            tag_vocab.pickle(cfg.pos_vocab_path)
+            log.info("Saved POS tag vocabulary: %s" % cfg.pos_vocab_path)
+    else:
+        log.info('Previously processed files will be used!')
+        token_vocab = Vocab.unpickle(cfg.corpus_vocab_path)
+        tag_vocab = Vocab.unpickle(cfg.pos_vocab_path)
+
+    StopWatch.stop('Total')
+
+    return token_vocab, tag_vocab
 
 
 def process_pos_corpus_with_main_vocab(cfg, main_vocab):

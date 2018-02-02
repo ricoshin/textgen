@@ -20,7 +20,7 @@ class Network(object):
         self.vocab = vocab
         self.ntokens = len(vocab)
 
-        if cfg.data_name == 'pos':
+        if cfg.pos_tag:
             batching_dataset = BatchingPOSDataset(cfg, vocab, vocab_pos)
         else:
             batching_dataset = BatchingDataset(cfg, vocab)
