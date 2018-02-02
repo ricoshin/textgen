@@ -29,6 +29,7 @@ from test.bleu_variation import leakgan_bleu, urop_bleu
 codes originally from ARAE : https://github.com/jakezhaojb/ARAE
 some parts are modified
 """
+"""
 from utils.utils_kenlm import train_ngram_lm, get_ppl
 # save_path : save path of .arpa and .txt file
 # N : N-gram language model. default 5.
@@ -66,7 +67,7 @@ def train_lm(eval_data, gen_data, vocab, save_path, n):
     # evaluate
     ppl = get_ppl(lm, eval_sents)
     return ppl
-
+"""
 """
 codes originally from ARAE
 end here
