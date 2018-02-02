@@ -21,7 +21,7 @@ from utils.utils import set_random_seed, to_gpu, set_logger
 from datetime import datetime
 
 from test.evaluate_nltk import truncate, corp_bleu
-from train.train_with_kenlm import train_lm
+#from train.train_with_kenlm import train_lm
 
 from test.bleu_variation import leakgan_bleu, urop_bleu
 from test.rouge import corp_rouge
@@ -108,7 +108,7 @@ def test(net):
         #choose range of evaluation
         eval_setting = input("Do you want to perform full evaluation?(y/n):")
         rp_scores = evaluate_sents(test_sents, fake_sents)
-
+"""
         if eval_setting =='y' or eval_setting == 'Y': # full evaluation
             rouge = corp_rouge(references = test_sents, hypotheses=fake_sents)
             testlog.info('Eval/Rouge: '+str(rouge))
@@ -125,11 +125,13 @@ def test(net):
             testlog.info('Eval/urop_bleu: '+str(urop_bleu(test_sents, fake_sents)))
 
         bleu4 = corp_bleu(references=test_sents, hypotheses=fake_sents, gram=4)
+        testlog.info('Eval/bleu-4: '+str(bleu4))
+
         ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
             vocab = net.vocab,
             save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, niter), # .arpa file path
             n = cfg.N)
-        testlog.info('Eval/bleu-4: '+str(bleu4))
         testlog.info('Eval/6_Reverse_Perplexity: '+str(ppl))
+"""
     # end test session
     print('exit test' + '\033[0;0m') # reset color
