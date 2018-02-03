@@ -56,12 +56,10 @@ def preprocess_data_vocab(cfg):
 
 def preprocess_simpleqa(cfg):
     StopWatch.go('Total')
-    if (not os.path.exists(cfg.train_q_data_filepath)
-        or not os.path.exists(cfg.train_a_data_filepath) or cfg.reload_prepro):
+    if (not os.path.exists(cfg.train_data_filepath) or cfg.reload_prepro):
 
         log.info('Start preprocessing data and building vocabulary!')
         vocab = None
-        is_loaded = False
         def get_idx_from_sents(filepath,vocab):
             if isinstance(filepath, (list, tuple)):
                 procs = BookCorpusMultiProcessor.from_multiple_files(
@@ -86,14 +84,11 @@ def preprocess_simpleqa(cfg):
                           embed_dim=cfg.embed_size, init_embed=word2vec)
             return vocab.numericalize_sents(sents), vocab
 
-        q_sents, vocab = get_idx_from_sents(cfg.train_q_filepath, vocab)
-        a_sents, _ = get_idx_from_sents(cfg.train_a_filepath, vocab)
+        sents, vocab = get_idx_from_sents(cfg.train_filepath, vocab)
 
         with StopWatch('Saving text'):
-            np.savetxt(cfg.train_q_data_filepath, q_sents, fmt="%s")
-            np.savetxt(cfg.train_a_data_filepath, a_sents, fmt="%s")
-            log.info("Saved preprocessed data: %s", cfg.train_q_data_filepath)
-            log.info("Saved preprocessed data: %s", cfg.train_a_data_filepath)
+            np.savetxt(cfg.train_data_filepath, q_sents, fmt="%s")
+            log.info("Saved preprocessed data: %s", cfg.train_data_filepath)
         with StopWatch('Pickling vocab'):
             vocab.pickle(cfg.vocab_filepath)
             log.info("Saved vocabulary: %s" % cfg.vocab_filepath)

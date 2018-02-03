@@ -76,15 +76,20 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
         def process_line(line):
             # remove numbers
             line = line.lstrip("1")
+            # split into ques, ans
+            line = line.split("\t")
             # replace
             replaces = [("''", '"'), ("``", '"'), ('\\*', '*')]
+            tokens = []
             for src, dst in replaces:
-                line = line.replace(src, dst)
-            # tokenize line & count words
-            tokens = tokenizer(line.strip())
+                for l in line:
+                l = l.replace(src, dst)
+                # tokenize line & count words
+                token = tokenizer(l.strip())
+                tokens.append([t.lower() for t in token])
             #if len(tokens) > self.max_len or len(tokens) < self.min_len:
             #    return None
-            return [token.lower() for token in tokens]
+            return tokens
 
         with open(self.file_path, 'r') as f:
             f.seek(start)

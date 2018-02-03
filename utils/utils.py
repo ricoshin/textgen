@@ -122,6 +122,7 @@ def prepare_paths(cfg):
         if cfg.small:
             raise Exception("There's no small version of snli dataset!")
         else:
+            cfg.train_filepath = os.path.join(cfg.data_dir, "train.txt")
             cfg.train_q_filepath = os.path.join(cfg.data_dir, 'train_q.txt')
             cfg.train_a_filepath = os.path.join(cfg.data_dir, 'train_a.txt')
             cfg.test_q_filepath = os.path.join(cfg.data_dir, 'test_q.txt')
@@ -131,6 +132,7 @@ def prepare_paths(cfg):
 
     cfg.train_q_data_filepath = os.path.join(cfg.prepro_dir, "train_q_data.txt")
     cfg.train_a_data_filepath = os.path.join(cfg.prepro_dir, "train_a_data.txt")
+    cfg.train_data_filepath = os.path.join(cfg.prepro_dir, "train_data.txt")
     cfg.vocab_filepath = os.path.join(cfg.prepro_dir, "vocab.pickle")
 
     if not os.path.exists(cfg.data_dir):
