@@ -46,31 +46,41 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
         for processor in processors:
             pool_results.append(processor.process())
 
-        sents = []
-        counter = Counter()
+        q_sents = []
+        a_sents = []
+        q_counter = Counter()
+        a_counter = Counter()
         log.info('\nMerging results from %d files...' % len(processors))
         for results in pool_results:
-            sents.extend(results[0])
-            counter += results[1]
-        return sents, counter
+            q_sents.extend(results[0])
+            a_sents.extend(results[1])
+            q_counter += results[2]
+            a_counter += results[3]
+        return q_sents, a_sents, q_counter, a_counter
 
     def process(self):
         results = super(BookCorpusMultiProcessor, self).process()
         log.info('\n' * (self.num_process - 1)) # to prevent dirty print
 
-        sents = []
-        counter = Counter()
+        q_sents = []
+        a_sents = []
+        q_counter = Counter()
+        a_counter = Counter()
         log.info('\nMerging the results from multi-processes...')
         for i in tqdm(range(len(results)), total=len(results)):
-            sents.extend(results[i][0])
-            counter += results[i][1]
-        return sents, counter
+            q_sents.extend(results[i][0])
+            a_sents.extend(results[i][1])
+            q_counter += results[i][1]
+            a_counter += results[i][2]
+        return q_sents, a_sents, q_counter, a_counter
 
     def _process_chunk(self, chunk):
         i, start, end = chunk
         chunk_size = end - start
-        processed = list()
-        counter = Counter()
+        q_processed = list()
+        a_processed = list()
+        q_counter = Counter()
+        a_counter = Counter()
         tokenizer = self._get_tokenizer(self.tokenizer)
 
         def process_line(line):
@@ -83,13 +93,13 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
             tokens = []
             for src, dst in replaces:
                 for l in line:
-                l = l.replace(src, dst)
-                # tokenize line & count words
-                token = tokenizer(l.strip())
-                tokens.append([t.lower() for t in token])
+                    l = l.replace(src, dst)
+                    # tokenize line & count words
+                    token = tokenizer(l.strip())
+                    tokens.append([t.lower() for t in token])
             #if len(tokens) > self.max_len or len(tokens) < self.min_len:
             #    return None
-            return tokens
+            return tokens[0], tokens[1]
 
         with open(self.file_path, 'r') as f:
             f.seek(start)
@@ -100,11 +110,14 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
                     curr = f.tell()
                     line = f.readline()
                     pbar.update(f.tell() - curr)
-                    tokens = process_line(line)
-                    if tokens is not None:
-                        processed.append(tokens)
-                        counter.update(tokens)
-        return processed, counter
+                    token_q, token_a = process_line(line)
+                    if token_q is not None:
+                        q_processed.append(token_q)
+                        q_counter.update(token_q)
+                    if token_a is not None:
+                        a_processed.append(token_a)
+                        a_counter.update(token_a)
+        return q_processed, q_counter, a_processed, a_counter
 
     def _get_tokenizer(self, tokenizer):
         if tokenizer == "spacy":

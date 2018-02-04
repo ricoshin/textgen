@@ -133,7 +133,8 @@ def prepare_paths(cfg):
     cfg.train_q_data_filepath = os.path.join(cfg.prepro_dir, "train_q_data.txt")
     cfg.train_a_data_filepath = os.path.join(cfg.prepro_dir, "train_a_data.txt")
     cfg.train_data_filepath = os.path.join(cfg.prepro_dir, "train_data.txt")
-    cfg.vocab_filepath = os.path.join(cfg.prepro_dir, "vocab.pickle")
+    cfg.q_vocab_filepath = os.path.join(cfg.prepro_dir, "q_vocab.pickle")
+    cfg.a_vocab_filepath = os.path.join(cfg.prepro_dir, "a_vocab.pickle")
 
     if not os.path.exists(cfg.data_dir):
         raise Exception("can't find data_dir: %s" % cfg.data_dir)

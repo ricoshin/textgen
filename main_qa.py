@@ -28,7 +28,7 @@ if __name__ == '__main__':
     split_simple_questions(cfg.data_dir)
 
     # Preprocessing
-    vocab = preprocess_simpleqa(cfg)
+    q_vocab, a_vocab = preprocess_simpleqa(cfg)
 
     # Load dataset
     train_data = BookCorpusDataset(cfg.train_data_filepath)

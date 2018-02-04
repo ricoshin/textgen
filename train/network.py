@@ -21,7 +21,6 @@ class Network(object):
 
         batching_dataset = BatchingDataset(vocab)
         print("train data len: ", len(train_data))
-        import ipdb; ipdb.set_trace()
         train_data_loader = DataLoader(train_data, cfg.batch_size, shuffle=True,
                                  num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
