@@ -88,7 +88,7 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--eval_size', type=int, default=100, metavar='N',
+parser.add_argument('--eval_size', type=int, default=64, metavar='N',
                     help='batch size during evaluation')
 parser.add_argument('--niters_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')
@@ -137,7 +137,7 @@ parser.add_argument('--log_interval', type=int, default=200,
                     help='interval to log autoencoder training results')
 
 # Test Arguments
-#parser.add_argument('--test', type=bool, default=False, help='pass True to enter test session')
+parser.add_argument('--test', type=bool, default=False, help='pass True to enter test session')
 
 # Other
 parser.add_argument('--small', action='store_true') # just for debugging

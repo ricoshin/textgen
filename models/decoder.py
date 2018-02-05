@@ -13,7 +13,7 @@ log = logging.getLogger('main')
 
 
 class Decoder(nn.Module):
-    def __init__(self, cfg, vocab):
+    def __init__(self, cfg, vocab, include_answer=False):
         super(Decoder, self).__init__()
         self.cfg = cfg
         self.vocab = vocab
@@ -22,8 +22,8 @@ class Decoder(nn.Module):
 
         # word embedding
         self.embed = WordEmbedding(cfg, vocab.embed_mat)
-
-        decoder_input_size = cfg.embed_size + cfg.hidden_size
+        
+        decoder_input_size = cfg.hidden_size + cfg.embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
                                hidden_size=cfg.hidden_size,
                                num_layers=1,
@@ -102,7 +102,7 @@ class Decoder(nn.Module):
         packed_embeddings = pack_padded_sequence(input=augmented_embeddings,
                                                  lengths=lengths,
                                                  batch_first=True)
-
+        
         packed_output, state = self.decoder(packed_embeddings, state)
         output, lengths = pad_packed_sequence(packed_output, batch_first=True)
 

@@ -56,7 +56,9 @@ def preprocess_data_vocab(cfg):
 
 def preprocess_simpleqa(cfg):
     StopWatch.go('Total')
-    if (not os.path.exists(cfg.train_data_filepath) or cfg.reload_prepro):
+    if (not os.path.exists(cfg.train_q_data_filepath)
+        or not os.path.exists(cfg.train_a_data_filepath)
+        or cfg.reload_prepro):
 
         log.info('Start preprocessing data and building vocabulary!')
         def get_idx_from_sents(filepath):
@@ -85,11 +87,12 @@ def preprocess_simpleqa(cfg):
             return q_vocab.numericalize_sents(q_sents), a_vocab.numericalize_sents(a_sents), q_vocab, a_vocab
 
         q_sents, a_sents, q_vocab, a_vocab = get_idx_from_sents(cfg.train_filepath)
-        sents = list(zip(q_sents, a_sents))
 
         with StopWatch('Saving text'):
-            np.savetxt(cfg.train_data_filepath, sents, fmt="%s")
-            log.info("Saved preprocessed data: %s", cfg.train_data_filepath)
+            np.savetxt(cfg.train_q_data_filepath, q_sents, fmt="%s")
+            np.savetxt(cfg.train_a_data_filepath, a_sents, fmt="%s")
+            log.info("Saved preprocessed data: %s", cfg.train_q_data_filepath)
+            log.info("Saved preprocessed data: %s", cfg.train_a_data_filepath)
         with StopWatch('Pickling vocab'):
             q_vocab.pickle(cfg.q_vocab_filepath)
             a_vocab.pickle(cfg.a_vocab_filepath)

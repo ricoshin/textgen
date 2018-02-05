@@ -212,7 +212,6 @@ def print_attns(cfg, vocab, id_attn_pair):
     def print_aligned(bat_ids, bat_attns):
         sample_num = 2
         attns_w, attns_l = bat_attns
-        #import ipdb; ipdb.set_trace()
         attns_w = mark_empty_attn_w(attns_w, cfg.max_len + 1)
         attns_w, attns_l = batch_first_attns([attns_w, attns_l])
         coupled = list(zip(bat_ids, attns_w, attns_l))

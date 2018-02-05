@@ -11,16 +11,22 @@ from utils.utils import to_gpu
 
 dict = collections.OrderedDict
 
-def train_ae(cfg, net, batch):
+
+def train_ae(cfg, net, batch, ans_batch):
+    # train encoder for answer
+    net.ans_enc.train()
+    # train ae
     net.enc.train()
     net.enc.zero_grad()
     net.dec.train()
     net.dec.zero_grad()
     # output.size(): batch_size x max_len x ntokens (logits)
-
+    
+    # output = answer encoder(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
+    ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.src, batch.len, noise=True, save_grad_norm=True)
-    output = net.dec(code, batch.src, batch.len)
+    output = net.dec(torch.cat((code, ans_code), 1), batch.src, batch.len) # torch.cat dim=1
 
     def mask_output_target(output, target, ntokens):
         # Create sentence length mask over padding
@@ -50,19 +56,21 @@ def train_ae(cfg, net, batch):
 
     loss.backward()
     # `clip_grad_norm` to prevent exploding gradient in RNNs / LSTMs
+    torch.nn.utils.clip_grad_norm(net.ans_enc.parameters(), cfg.clip)
     torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
     torch.nn.utils.clip_grad_norm(net.dec.parameters(), cfg.clip)
     return ResultPackage("Autoencoder",
                          dict(Loss=loss.data, Accuracy=accuracy.data[0]))
 
 
-def eval_ae_tf(net, batch):
+def eval_ae_tf(net, batch, ans_code):
     net.enc.eval()
     net.dec.eval()
+
     # output.size(): batch_size x max_len x ntokens (logits)
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.src, batch.len, noise=True)
-    output = net.dec(code, batch.src, batch.len)
+    output = net.dec(torch.cat((code, ans_code), 1), batch.src, batch.len)
 
     max_value, max_indices = torch.max(output, 2)
     target = batch.tar.view(output.size(0), -1)
@@ -71,16 +79,16 @@ def eval_ae_tf(net, batch):
 
     return targets, outputs
 
-def eval_ae_fr(cfg, net, batch):
+def eval_ae_fr(cfg, net, batch, ans_code):
     # forward / NOTE : ae_mode off?
     # "real" real
     code = net.enc(batch.src, batch.len, noise=False, train=False)
-    max_ids, outputs = net.dec(code, teacher=False, train=False)
+    max_ids, outputs = net.dec(torch.cat((code, ans_code), 1), teacher=False, train=False)
     # output.size(): batch_size x max_len x ntokens (logits)
     target = batch.tar.view(outputs.size(0), -1)
     targets = target.data.cpu().numpy()
 
-def eval_ae_fr(net, batch):
+def eval_ae_fr(net, batch, ans_code):
     net.enc.eval()
     net.dec.eval()
     # output.size(): batch_size x max_len x ntokens (logits)
@@ -88,7 +96,7 @@ def eval_ae_fr(net, batch):
     #max_ids, outs = ae.decode_only(cfg, code, vocab, train=False)
 
     code = net.enc(batch.src, batch.len, noise=True)
-    max_ids, outs = net.dec.generate(code)
+    max_ids, outs = net.dec.generate(torch.cat((code, ans_code), 1))
 
     targets = batch.tar.view(outs.size(0), -1)
     targets = targets.data.cpu().numpy()
@@ -96,19 +104,19 @@ def eval_ae_fr(net, batch):
     return targets, max_ids
 
 
-def eval_gen_dec(cfg, net, fixed_noise):
+def eval_gen_dec(cfg, net, fixed_noise, ans_code):
     net.gen.eval()
     net.dec.eval()
     code_fake = net.gen(fixed_noise)
-    ids_fake, _ = net.dec.generate(code_fake)
+    ids_fake, _ = net.dec.generate(torch.cat((code_fake, ans_code), 1))
     return ids_fake
 
 
-def train_dec(cfg, net, fake_code, vocab):
+def train_dec(cfg, net, fake_code, ans_code, vocab):
     net.dec.train()
     net.dec.zero_grad()
 
-    fake_ids, fake_outs = net.dec.generate(fake_code)
+    fake_ids, fake_outs = net.dec.generate(torch.cat((fake_code, ans_code), 1))
     # fake_outs.size() : [batch_size*2, max_len, vocab_size]
 
     # register hook on logits of decoder
@@ -226,20 +234,20 @@ def train_disc_c(cfg, net, code_real, code_fake):
                     D_Fake=err_d_fake.data[0]))
 
 
-def train_disc_s(cfg, net, batch, code_real, code_fake):
+def train_disc_s(cfg, net, batch, code_real, code_fake, ans_code):
     net.dec.eval()
     net.disc_s.train()
     net.disc_s.zero_grad()
 
-    ids_real, outs_real = net.dec.generate(code_real)
-    ids_fake, outs_fake = net.dec.generate(code_fake)
+    ids_real, outs_real = net.dec.generate(torch.cat((code_real, ans_code), 1))
+    ids_fake, outs_fake = net.dec.generate(torch.cat((code_fake, ans_code), 1))
 
     # "real" fake (embeddings)
     outs_fake = torch.cat([outs_real, outs_fake], dim=0)
     code_fake = torch.cat([code_real, code_fake], dim=0)
     # "real" real ids
     ids_real = batch.tar.view(cfg.batch_size, -1)
-    ids_real = append_pads(cfg, ids_real, net.vocab)
+    ids_real = append_pads(cfg, ids_real, net.q_vocab)
     #outs_real = batch.tar.view(cfg.batch_size, -1)
 
     # clamp parameters to a cube

@@ -70,8 +70,8 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
         for i in tqdm(range(len(results)), total=len(results)):
             q_sents.extend(results[i][0])
             a_sents.extend(results[i][1])
-            q_counter += results[i][1]
-            a_counter += results[i][2]
+            q_counter += results[i][2]
+            a_counter += results[i][3]
         return q_sents, a_sents, q_counter, a_counter
 
     def _process_chunk(self, chunk):
@@ -117,7 +117,7 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
                     if token_a is not None:
                         a_processed.append(token_a)
                         a_counter.update(token_a)
-        return q_processed, q_counter, a_processed, a_counter
+        return q_processed, a_processed,  q_counter, a_counter
 
     def _get_tokenizer(self, tokenizer):
         if tokenizer == "spacy":

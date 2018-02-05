@@ -44,8 +44,6 @@ class Encoder(nn.Module):
         return grad
 
     def forward(self, indices, lengths, noise, save_grad_norm=False):
-        print('indices size: ', indices.size())
-        import ipdb; ipdb.set_trace()
         batch_size, maxlen = indices.size()
 
         hidden = self._encode(indices, lengths, noise)
