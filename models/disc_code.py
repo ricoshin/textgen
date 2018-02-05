@@ -3,6 +3,7 @@ import math
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.autograd import Variable
 
 from train.train_helper import ResultPackage
@@ -46,10 +47,8 @@ class CodeDiscriminator(nn.Module):
             self.layers.append(activation)
             self.add_module("activation"+str(i+1), activation)
 
-        layer = nn.Linear(layer_sizes[-1], noutput)
-        self.layers.append(layer)
-        #self.add_module("layer"+str(len(self.layers)), layer)
-        self.add_module("layer"+str(len(layer_sizes)), layer) # bug fix
+        self.wgan_linear = nn.Linear(layer_sizes[-1], noutput) # WGAN
+        self.pred_linear = nn.Linear(layer_sizes[-1], noutput) # for prediction
 
         # gan_disc
         # MLP_D(
@@ -63,13 +62,13 @@ class CodeDiscriminator(nn.Module):
 
         self._init_weights()
 
-    def forward(self, x, train=False):
-        self._check_train(train)
-
+    def forward(self, x):
         for i, layer in enumerate(self.layers):
             x = layer(x)
-        x = torch.mean(x)
-        return x
+        x_wgan = torch.mean(self.wgan_linear(x))
+        x_pred = Variable(x.data, requires_grad=True)
+        x_pred = F.sigmoid(self.pred_linear(x_pred))
+        return x_wgan, x_pred
 
     def _init_weights(self):
         init_std = 0.02
@@ -79,10 +78,3 @@ class CodeDiscriminator(nn.Module):
                 layer.bias.data.fill_(0)
             except:
                 pass
-
-    def _check_train(self, train):
-        if train:
-            self.train()
-            self.zero_grad()
-        else:
-            self.eval()

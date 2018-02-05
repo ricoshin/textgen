@@ -98,6 +98,7 @@ def set_logger(cfg):
 
 
 def prepare_paths(cfg):
+    sanity_check(cfg)
     # set directories
     cfg.log_dir = os.path.join(cfg.out_dir, cfg.name)
     cfg.data_dir = os.path.join(cfg.data_dir, cfg.data_name)
@@ -111,12 +112,12 @@ def prepare_paths(cfg):
 
     # main corpus filepath
     if cfg.small:
-        cfg.embed_size = 50
+        cfg.word_embed_size = 50
 
     if cfg.data_name == "books":
         if cfg.small:
             cfg.prepro_dir += "_small"
-            filename = "books_1k.txt"
+            filename = "books_100k.txt"
             cfg.corpus_path = os.path.join(cfg.data_dir, filename)
         else:
             filenames = ["books_large_p1.txt", "books_large_p2.txt"]
@@ -157,6 +158,16 @@ def prepare_paths(cfg):
     if not os.path.exists(cfg.prepro_dir):
         os.makedirs(cfg.prepro_dir)
 
+def sanity_check(cfg, strict=False):
+
+    def inform_fn(msg):
+        if strict:
+            raise Exception(msg)
+        else:
+            log.warning(msg)
+
+    if cfg.fix_embed and not cfg.load_glove:
+        inform_fn('cfg.load_glove is False, but trying fix_embed.')
 
 def set_random_seed(cfg):
     random.seed(cfg.seed)

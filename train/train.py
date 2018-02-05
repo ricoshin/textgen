@@ -96,7 +96,8 @@ def train(net):
             ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
 
             # dump results
-            rp_dc.update(dict(G=rp_gen.loss)) # NOTE : mismatch
+            rp_dc.update(dict(G_Loss=rp_gen.loss)) # NOTE : mismatch
+            rp_dc.update(dict(G_Pred=rp_gen.pred))
             rp_dc.drop_log_and_events(sv, writer, False)
             print_gen_sents(net.vocab, ids_fake_eval, cfg.log_nsample)
 

@@ -84,7 +84,8 @@ class Vocab(object):
             for word, idx in self.word2idx.items():
                 self._embed[idx] = init_embed.get(word, self._embed[idx])
         # embedding of <pad> token should be zero
-        self._embed[self.word2idx['<pad>']] = 0
+        if self.PAD_ID in self.word2idx.keys():
+            self._embed[self.PAD_ID] = 0
 
 
     def numericalize_sents(self, sents):

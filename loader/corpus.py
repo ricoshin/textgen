@@ -46,56 +46,69 @@ class CorpusPOSDataset(Dataset):
 
 
 class Batch(object):
-    def __init__(self, source, target, length, postag=None):
-        self.__source = source
-        self.__target = target
-        self.__length = length
-        self.__postag = postag
+    def __init__(self, source, target, length):
+        self.__src = source
+        self.__tar = target
+        self.__len = length
 
     @property
     def src(self):
-        return self.__source
+        return self.__src
 
     @property
     def tar(self):
-        return self.__target
+        return self.__tar
 
     @property
     def len(self):
-        return self.__length
-
-    @property
-    def pos(self):
-        if self.__postag is None:
-            raise Exception("POS tage has not been initialzed!")
-        else:
-            return self.__postag
+        return self.__len
 
     def variable(self, volatile=False):
-        source = Variable(self.__source, volatile=volatile)
-        target = Variable(self.__target, volatile=volatile)
-        if self.__postag is not None:
-            postag = Variable(self.__postag, volatile=volatile)
-        else:
-            postag = None
-        return Batch(source, target, self.__length, postag)
+        src = Variable(self.__src, volatile=volatile)
+        tar = Variable(self.__tar, volatile=volatile)
+        return Batch(src, tar, self.__len)
 
     def cuda(self, cuda=True):
         if cuda:
-            source = self.__source.cuda()
-            target = self.__target.cuda()
-            if self.__postag is not None:
-                postag = self.__postag.cuda()
-            else:
-                postag = None
+            src = self.__src.cuda()
+            tar = self.__tar.cuda()
         else:
-            source = self.__source
-            target = self.__target
-            if self.__postag is not None:
-                postag = self.__postag
-            else:
-                postag = None
-        return Batch(source, target, self.__length, postag)
+            src = self.__src
+            tar = self.__tar
+        return Batch(src, tar, self.__len)
+
+
+class BatchTag(Batch):
+    def __init__(self, source, target, length, source_tag, target_tag):
+        super(BatchTag, self).__init__(source, target, length)
+        self.__src_tag = source_tag
+        self.__tar_tag = target_tag
+
+    @property
+    def src_tag(self):
+        if self.__src_tag is None:
+            raise Exception("POS tag has not been initialzed!")
+        else:
+            return self.__src_tag
+
+    @property
+    def tar_tag(self):
+        if self.__tar_tag is None:
+            raise Exception("POS tag has not been initialzed!")
+        else:
+            return self.__tar_tag
+
+    def variable(self, volatile=False):
+        batch = super(BatchTag, self).variable(volatile)
+        src_tag = Variable(self.__src_tag, volatile=volatile)
+        tar_tag = Variable(self.__tar_tag, volatile=volatile)
+        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
+
+    def cuda(self, cuda=True):
+        batch = super(BatchTag, self).cuda(cuda)
+        src_tag = self.__src_tag.cuda()
+        tar_tag = self.__tar_tag.cuda()
+        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
 
 
 class BatchingDataset(object):
@@ -151,12 +164,13 @@ class BatchingPOSDataset(BatchingDataset):
     def process(self, batch):
         source = []
         target = []
-        postag = []
         lengths = []
+        source_tag = []
+        target_tag = []
 
-        for sent, pos in batch:
+        for sent, tag in batch:
             # sent and pos length must be the same
-            assert(len(sent) == len(pos))
+            assert(len(sent) == len(tag))
             lengths.append(len(sent))
         batch_max_len = max(lengths)
 
@@ -164,28 +178,32 @@ class BatchingPOSDataset(BatchingDataset):
         if len(batch) > 1:
             batch, lengths = self._length_sort(batch, lengths)
 
-        for sent, pos in batch:
+        for sent, tag in batch:
             # pad & sos/eos
             num_pads = batch_max_len - len(sent)
             pads = [self.vocab.PAD_ID] * num_pads
             src = sent + pads
+            src_tag = tag + pads
             tar = sent + [self.vocab.EOS_ID] + pads
-            pos = pos + [self.vocab_pos.EOS_ID] + pads # eos : for matching step length
+            tar_tag = tag + [self.vocab_pos.EOS_ID] + pads
 
             source.append(src)
             target.append(tar)
-            postag.append(pos)
+            source_tag.append(src_tag)
+            target_tag.append(tar_tag)
 
         source = torch.LongTensor(np.array(source))
         target = torch.LongTensor(np.array(target)).view(-1)
-        postag = torch.LongTensor(np.array(postag)).view(-1)
+        source_tag = torch.LongTensor(np.array(source_tag))
+        target_tag = torch.LongTensor(np.array(target_tag)).view(-1)
 
         if self.gpu:
             source = source.cuda()
             target = target.cuda()
-            postag = postag.cuda()
+            source_tag = source_tag.cuda()
+            target_tag = target_tag.cuda()
 
-        return Batch(source, target, lengths, postag)
+        return BatchTag(source, target, lengths, source_tag, target_tag)
 
 
 class BatchIterator(object):

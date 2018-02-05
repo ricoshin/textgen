@@ -39,7 +39,9 @@ parser.add_argument('--load_glove', type=str2bool, default=True,
 # Model Arguments
 parser.add_argument('--vocab_size', type=int, default=10000,
                     help='cut vocabulary down to this size ')
-parser.add_argument('--embed_size', type=int, default=300,
+parser.add_argument('--word_embed_size', type=int, default=300,
+                    help='size of word embeddings')
+parser.add_argument('--tag_embed_size', type=int, default=100,
                     help='size of word embeddings')
 parser.add_argument('--hidden_size', type=int, default=300,
                     help='number of hidden units per layer')

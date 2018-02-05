@@ -97,7 +97,7 @@ class EncoderDiscArchitect(object):
 
     def _get_in_c_size(self, cfg):
         if cfg.disc_s_in == 'embed':
-            return cfg.embed_size
+            return cfg.word_embed_size
         elif cfg.disc_s_in == 'hidden':
             return cfg.hidden_size
         else:
@@ -122,7 +122,7 @@ class EncoderDisc(Encoder):
         # Step represetation can be :
         #   - hidden states which each word is generated from
         #   - embeddings that were porduced from generated word indices
-        # inputs.size() : [batch_size(N), 1(C), max_len(H), embed_size(W)]
+        # inputs.size() : [batch_size(N), 1(C), max_len(H), word_embed_size(W)]
         arch = EncoderDiscArchitect(cfg)
         cfg.update(dict(arch_enc_disc=Config(arch.__dict__)))
         # expected input dim
@@ -183,8 +183,8 @@ class EncoderDisc(Encoder):
         elif indices.size(1) > self.cfg.max_len:
             indices = indices[:, :self.cfg.max_len, :]
 
-        x = self._adaptive_embedding(indices) # [bsz, max_len, embed_size]
-        x = x_in = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
+        x = self._adaptive_embedding(indices) # [bsz, max_len, word_embed_size]
+        x = x_in = x.permute(0, 2, 1).unsqueeze(2) # [bsz, word_embed_size, 1, max_len]
 
         # generate mask for wordwise attention
         if disc_mode:
@@ -280,7 +280,7 @@ class EncoderDisc(Encoder):
                 raise Exception('Wrong embedding input dimension!')
 
     def _generate_pad_masks(self, x):
-        # [bsz, embed_size, 1, max_len]
+        # [bsz, word_embed_size, 1, max_len]
         x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False)
         # [bsz, 1, 1, max_len]
         masks = []

@@ -13,26 +13,13 @@ log = logging.getLogger('main')
 
 
 class Decoder(nn.Module):
-    def __init__(self, cfg, vocab, vocab_pos=None):
+    def __init__(self, cfg, vocab):
         super(Decoder, self).__init__()
         self.cfg = cfg
-        self.grad_norm = None
         self.vocab = vocab
-        self.embed_dec = WordEmbedding(vocab_size=cfg.vocab_size,
-                                       embed_size=cfg.word_embed_size,
-                                       fix_embed=cfg.fix_embed,
-                                       init_embed=vocab.embed)
-
-        if cfg.pos_tag and vocab_pos is not None:
-            self.vocab_pos = vocab_pos
-            self.embed_tag = WordEmbedding(vocab_size=cfg.tag_size,
-                                           embed_size=cfg.tag_embed_size,
-                                           fix_embed=False,
-                                           init_embed=vocab_pos.embed)
-        elif cfg.pos_tag and vocab_pos is None:
-            raise Exception("vocab_pos can't be None when cfg.pos_tag=True")
-        elif (not cfg.pos_tag) and vocab_pos is not None:
-            raise Exception("vocab_pos is not necessary when cfg.pos_tag=False")
+        self.grad_norm = None
+        # word embedding
+        self.embed = WordEmbedding(cfg, vocab.embed)
 
     def forward(self, *input):
         raise NotImplementedError
@@ -44,23 +31,21 @@ class Decoder(nn.Module):
 
 
 class DecoderRNN(Decoder):
-    def __init__(self, cfg, vocab, vocab_pos=None):
-        super(DecoderRNN, self).__init__(cfg, vocab, vocab_pos)
+    def __init__(self, cfg, vocab):
+        super(DecoderRNN, self).__init__(cfg, vocab)
 
-        input_size_dec = cfg.word_embed_size + cfg.hidden_size
-        self.decoder = nn.LSTM(input_size=input_size_dec,
+        if cfg.pos_tag:
+            self.pos_tagger = nn.LSTM(input_size=cfg.hidden_size,
+                                      hidden_size=cfg.hidden_size,
+                                      dropout=cfg.dropout,
+                                      batch_first=True)
+
+        decoder_input_size = cfg.word_embed_size + cfg.hidden_size
+        self.decoder = nn.LSTM(input_size=decoder_input_size,
                                hidden_size=cfg.hidden_size,
                                num_layers=1,
                                dropout=cfg.dropout,
                                batch_first=True)
-
-        if cfg.pos_tag:
-            embed_size = cfg.word_embed_size + cfg.tag_embed_size
-            input_size_tag = embed_size + cfg.hidden_size
-            self.tagger = nn.LSTM(input_size=input_size_tag,
-                                  hidden_size=cfg.hidden_size,
-                                  dropout=cfg.dropout,
-                                  batch_first=True)
 
         # Initialize Linear Transformation
         self.linear_word = nn.Linear(cfg.hidden_size, cfg.vocab_size)
@@ -92,9 +77,9 @@ class DecoderRNN(Decoder):
         zeros = Variable(torch.zeros(self.cfg.nlayers, bsz, self.cfg.nhidden))
         return to_gpu(self.cfg.cuda, zeros)
 
-    def _get_sos_batch(self, bsz, vocab):
+    def _get_sos_batch(self, bsz):
         sos_ids = to_gpu(self.cfg.cuda, Variable(torch.ones(bsz, 1).long()))
-        sos_ids.fill_(vocab.SOS_ID)
+        sos_ids.fill_(self.vocab.SOS_ID)
         return sos_ids
 
     def _pads_after_eos(self, ids, out, finished):
@@ -107,53 +92,50 @@ class DecoderRNN(Decoder):
         out = out * out_mask.float()
         return ids, out, finished
 
-    def forward(self, hidden, ids_dec, ids_tag, lengths):
-        decoded = self._decode(hidden, ids_dec, ids_tag, lengths)
+    def forward(self, hidden, indices, lengths):
+        decoded = self._decode(hidden, indices, lengths)
 
         return decoded
 
-    def _decode(self, hidden, ids_dec, ids_tag, lengths):
-        batch_size = ids_dec.size(0)
+    def _decode(self, hidden, indices, lengths):
+        batch_size = indices.size(0)
 
         # insert sos in the first column
-        sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
-        sos_ids_tag = self._get_sos_batch(batch_size, self.vocab_pos)
-        ids_dec = torch.cat([sos_ids_dec, ids_dec], 1)
-        ids_tag = torch.cat([sos_ids_tag, ids_tag], 1)
+        sos_ids = self._get_sos_batch(batch_size)
+        indices = torch.cat([sos_ids, indices], 1)
         # length should be increased as well
         lengths = [length + 1 for length in lengths]
 
-        # Decoder
-        init_state = self._init_hidden(batch_size)
-        embed_dec = self.embed_dec(ids_dec) # for teacher forcing
-        embed_tag = self.embed_tag(ids_tag) # for teacher forcing
+        # hidden.size() : bsz x hidden_size
+        # bsz x max_len x hidden_size
         all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
-        augmented_input = torch.cat([embed_dec, all_hidden], 2)
-        packed_in_dec = pack_padded_sequence(input=augmented_input,
-                                             lengths=lengths,
-                                             batch_first=True)
-        packed_out_dec, _ = self.decoder(packed_in_dec, init_state)
-        out_dec, len_dec = pad_packed_sequence(packed_out_dec, batch_first=True)
 
-        if out_dec.requires_grad:
-            out_dec.register_hook(self._store_grad_norm)
+        if self.cfg.hidden_init:
+            state = (hidden.unsqueeze(0), self._init_state(batch_size))
+        else:
+            state = self._init_hidden(batch_size)
+
+        embeddings = self.embed(indices) # for teacher forcing
+        try:
+            augmented_embeddings = torch.cat([embeddings, all_hidden], 2)
+        except:
+            import pdb; pdb.set_trace()
+        packed_embeddings = pack_padded_sequence(input=augmented_embeddings,
+                                                 lengths=lengths,
+                                                 batch_first=True)
+
+        packed_output, state = self.decoder(packed_embeddings, state)
+        output, lengths = pad_packed_sequence(packed_output, batch_first=True)
+
+        if output.requires_grad:
+            output.register_hook(self._store_grad_norm)
             #log.debug("Decoder gradient norm has been saved.")
 
-        # POS tagger
-        new_out_dec = Variable(out_dec.data, requires_grad=False)
-        augmented_input = torch.cat([new_out_dec, embed_tag, all_hidden], 2)
-        packed_in_tag = pack_padded_sequence(input=augmented_input,
-                                             lengths=len_dec,
-                                             batch_first=True)
-        packed_out_tag, _ = self.tagger(packed_in_tag, init_state)
-        out_tag, _ = pad_packed_sequence(packed_out_tag, batch_first=True)
-
         # reshape to batch_size*maxlen x nhidden before linear over vocab
-        out_dec = out_dec.contiguous().view(-1, self.cfg.hidden_size)
-        words = self.linear_word(out_dec) # output layer for word prediction
+        output = output.contiguous().view(-1, self.cfg.hidden_size)
+        words = self.linear_word(output) # output layer for word prediction
+        tags = self.linear_tag(output)
         words = words.view(batch_size, max(lengths), self.cfg.vocab_size)
-
-        tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 
         return words, tags # decoded.size() : batch x max_len x ntokens [logits]
@@ -164,15 +146,17 @@ class DecoderRNN(Decoder):
             hidden = hidden.detach()
 
         batch_size = hidden.size(0)
-        hidden = hidden.unsqueeze(1)
-        state_dec = state_tag = self._init_hidden(batch_size)
+
+        if self.cfg.hidden_init:
+            # initialize decoder hidden state to encoder output
+            state = (hidden.unsqueeze(0), self._init_state(batch_size))
+        else:
+            state = self._init_hidden(batch_size)
 
         # <sos>
-        sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
-        sos_ids_tag = self._get_sos_batch(batch_size, self.vocab_pos)
-        embed_dec = self.embed_dec(sos_ids_dec)
-        embed_tag = self.embed_tag(sos_ids_tag)
+        sos_embedding = self.embed(self._get_sos_batch(batch_size))
         # sos_embedding : [batch_size, 1, embedding_size]
+        inputs = torch.cat([sos_embedding, hidden.unsqueeze(1)], 2)
 
         # unroll
         all_ids_word = []
@@ -183,18 +167,14 @@ class DecoderRNN(Decoder):
         finished = torch.ByteTensor(batch_size, 1).zero_()
         finished = to_gpu(self.cfg.cuda,
                           Variable(finished, requires_grad=False))
-
         max_len = self.cfg.max_len #+ 1 # including sos/eos
         for i in range(max_len): # for each step
-            input_dec = torch.cat([embed_dec, hidden], 2)
-            outs_dec, state_dec = self.decoder(input_dec, state_dec)
-            #outs_dec = Variable(outs_dec.data, requires_grad=False)
-            input_tag = torch.cat([outs_dec, embed_tag, hidden], 2)
-            outs_tag, state_tag = self.tagger(input_tag, state_tag)
+            # input very first step (sos totken + fake_z_code)
+            outs, state = self.decoder(inputs, state)
             # output.size() : bath_size x 1(max_len) x nhidden
             # state.size() : 1(num_layer) x batch_size x nhidden
-            logit_word = self.linear_word(outs_dec.squeeze(1))
-            logit_tag = self.linear_tag(outs_tag.squeeze(1))
+            logit_word = self.linear_word(outs.squeeze(1))
+            logit_tag = self.linear_tag(outs.squeeze(1))
             # output.squeeze(1) : batch_size x nhidden (output layer)
             # words : batch_size x ntokens
             _, ids_word = torch.max(logit_word, 1, keepdim=True)
@@ -204,12 +184,12 @@ class DecoderRNN(Decoder):
             # [batch_size, 1 ntoken]
 
             # if eos token has already appeared, fill zeros
-            ids_word, outs, finished = self._pads_after_eos(ids_word, outs,
+            ids_tag, outs, finished = self._pads_after_eos(ids_tag, outs,
                                                             finished)
 
             # for the next step
-            embed_dec = self.embed_dec(ids_word)
-            embed_tag = self.embed_tag(ids_tag)
+            embed = self.embed(ids_word)
+            inputs = torch.cat([embed, hidden.unsqueeze(1)], 2)
 
             # append generated token ids & outs at each step
             all_ids_word.append(ids_word)

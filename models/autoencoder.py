@@ -18,13 +18,13 @@ class Encoder(nn.Module):
         self.cfg = cfg
         self.noise_radius = cfg.noise_radius
         # Vocabulary embedding
-        self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
+        self.embed = nn.Embedding(cfg.vocab_size, cfg.word_embed_size)
         self.embed.weight.data.copy_(torch.from_numpy(vocab.embed))
         if cfg.load_glove and cfg.fix_embed:
             self.embed.weight.requires_grad = False
 
         # RNN Encoder and Decoder
-        self.encoder = nn.LSTM(input_size=cfg.embed_size,
+        self.encoder = nn.LSTM(input_size=cfg.word_embed_size,
                                hidden_size=cfg.hidden_size,
                                num_layers=cfg.nlayers,
                                dropout=cfg.dropout,
@@ -109,8 +109,8 @@ class Decoder(nn.Module):
         self.start_symbols = to_gpu(
             cfg.cuda, Variable(torch.ones(10, 1).long()))
         # Vocabulary embedding
-        self.embed = nn.Embedding(cfg.vocab_size, cfg.embed_size)
-        decoder_input_size = cfg.embed_size + cfg.hidden_size
+        self.embed = nn.Embedding(cfg.vocab_size, cfg.word_embed_size)
+        decoder_input_size = cfg.word_embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=decoder_input_size,
                                hidden_size=cfg.hidden_size,
                                num_layers=1,
