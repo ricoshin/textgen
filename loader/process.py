@@ -149,7 +149,6 @@ def process_corpus_tag(cfg):
 
     cfg.tag_size = len(tag_vocab)
     StopWatch.stop('Total')
-
     return token_vocab, tag_vocab
 
 

@@ -117,7 +117,7 @@ def prepare_paths(cfg):
     if cfg.data_name == "books":
         if cfg.small:
             cfg.prepro_dir += "_small"
-            filename = "books_100k.txt"
+            filename = "books_1k.txt"
             cfg.corpus_path = os.path.join(cfg.data_dir, filename)
         else:
             filenames = ["books_large_p1.txt", "books_large_p2.txt"]

@@ -14,7 +14,7 @@ parser.add_argument('--prepro_dir', type=str, default='prepro',
                     help='location of the preprocessed data')
 parser.add_argument('--data_dir', type=str, default='data',
                     help='location of the datasets')
-parser.add_argument('--data_name', type=str, default='pos',
+parser.add_argument('--data_name', type=str, default='snli',
                     choices=['snli','books', 'pos'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')
@@ -28,7 +28,7 @@ parser.add_argument('--name', type=str, required=True)
 
 parser.add_argument('--min_len', type=int, default=1,
                     help='minimum sentence length')
-parser.add_argument('--max_len', type=int, default=40,
+parser.add_argument('--max_len', type=int, default=20,
                     help='maximum sentence length')
 #parser.add_argument('--lowercase', action='store_true',
 #                    help='lowercase all text')
@@ -121,7 +121,7 @@ parser.add_argument('--backprop_gen', type=str2bool, default=False,
                     help='enable backpropagation gradient from disc_s to gen')
 parser.add_argument('--disc_s_hold', type=int, default=1,
                     help='num of initial epochs not training train disc_s')
-parser.add_argument('--fix_embed', type=str2bool, default=True,
+parser.add_argument('--fix_embed', type=str2bool, default=False,
                     help='pretain embedding matrix weights (not trainable)')
 parser.add_argument('--word_temp', type=float, default=1e-2,
                     help='softmax temperature for wordwise attention')
@@ -135,7 +135,7 @@ parser.add_argument('--sample', action='store_true',
                     help='sample when decoding for generation')
 parser.add_argument('--N', type=int, default=5,
                     help='N-gram order for training n-gram language model')
-parser.add_argument('--log_interval', type=int, default=1,
+parser.add_argument('--log_interval', type=int, default=50,
                     help='interval to log autoencoder training results')
 
 # Test Arguments

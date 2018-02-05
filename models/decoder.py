@@ -143,8 +143,9 @@ class DecoderRNN(Decoder):
         new_out_dec = Variable(out_dec.data, requires_grad=False)
         augmented_input = torch.cat([new_out_dec, embed_tag, all_hidden], 2)
         packed_in_tag = pack_padded_sequence(input=augmented_input,
-                                             lengths=len_dec,
+                                             lengths=len_dec, #NOTE length
                                              batch_first=True)
+
         packed_out_tag, _ = self.tagger(packed_in_tag, init_state)
         out_tag, _ = pad_packed_sequence(packed_out_tag, batch_first=True)
 
@@ -153,6 +154,7 @@ class DecoderRNN(Decoder):
         words = self.linear_word(out_dec) # output layer for word prediction
         words = words.view(batch_size, max(lengths), self.cfg.vocab_size)
 
+        out_tag = out_tag.contiguous().view(-1, self.cfg.hidden_size)
         tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 

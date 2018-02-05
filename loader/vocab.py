@@ -84,7 +84,7 @@ class Vocab(object):
             for word, idx in self.word2idx.items():
                 self._embed[idx] = init_embed.get(word, self._embed[idx])
         # embedding of <pad> token should be zero
-        if self.PAD_ID in self.word2idx.keys():
+        if self.idx2word[self.PAD_ID] in self.word2idx.keys():
             self._embed[self.PAD_ID] = 0
 
 
