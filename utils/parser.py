@@ -43,7 +43,7 @@ parser.add_argument('--word_embed_size', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--tag_embed_size', type=int, default=100,
                     help='size of word embeddings')
-parser.add_argument('--hidden_size', type=int, default=300,
+parser.add_argument('--hidden_size', type=int, default=500,
                     help='number of hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
