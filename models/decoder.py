@@ -13,7 +13,7 @@ log = logging.getLogger('main')
 
 
 class Decoder(nn.Module):
-    def __init__(self, cfg, vocab, vocab_pos=None):
+    def __init__(self, cfg, vocab):
         super(Decoder, self).__init__()
         self.cfg = cfg
         self.grad_norm = None
@@ -22,17 +22,6 @@ class Decoder(nn.Module):
                                        embed_size=cfg.word_embed_size,
                                        fix_embed=cfg.fix_embed,
                                        init_embed=vocab.embed)
-
-        if cfg.pos_tag and vocab_pos is not None:
-            self.vocab_pos = vocab_pos
-            self.embed_tag = WordEmbedding(vocab_size=cfg.tag_size,
-                                           embed_size=cfg.tag_embed_size,
-                                           fix_embed=False,
-                                           init_embed=vocab_pos.embed)
-        elif cfg.pos_tag and vocab_pos is None:
-            raise Exception("vocab_pos can't be None when cfg.pos_tag=True")
-        elif (not cfg.pos_tag) and vocab_pos is not None:
-            raise Exception("vocab_pos is not necessary when cfg.pos_tag=False")
 
     def forward(self, *input):
         raise NotImplementedError
@@ -44,8 +33,8 @@ class Decoder(nn.Module):
 
 
 class DecoderRNN(Decoder):
-    def __init__(self, cfg, vocab, vocab_pos=None):
-        super(DecoderRNN, self).__init__(cfg, vocab, vocab_pos)
+    def __init__(self, cfg, vocab):
+        super(DecoderRNN, self).__init__(cfg, vocab)
         input_size_dec = cfg.word_embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=input_size_dec,
                                hidden_size=cfg.hidden_size,
@@ -53,16 +42,15 @@ class DecoderRNN(Decoder):
                                dropout=cfg.dropout,
                                batch_first=True)
 
+        self.linear_word = nn.Linear(cfg.hidden_size, cfg.vocab_size)
+
         if cfg.pos_tag:
             input_size_tag = cfg.hidden_size * 2
             self.tagger = nn.LSTM(input_size=input_size_tag,
                                   hidden_size=cfg.hidden_size,
                                   dropout=cfg.dropout,
                                   batch_first=True)
-
-        # Initialize Linear Transformation
-        self.linear_word = nn.Linear(cfg.hidden_size, cfg.vocab_size)
-        self.linear_tag = nn.Linear(cfg.hidden_size, cfg.tag_size)
+            self.linear_tag = nn.Linear(cfg.hidden_size, cfg.tag_size)
 
         self.criterion_ce = nn.CrossEntropyLoss()
         self._init_weights()
@@ -71,13 +59,16 @@ class DecoderRNN(Decoder):
         # unifrom initialization in the range of [-0.1, 0.1]
         initrange = 0.1
 
-        # Initialize Encoder and Decoder Weights
         for p in self.decoder.parameters():
             p.data.uniform_(-initrange, initrange)
-
-        # Initialize Linear Weight
         self.linear_word.weight.data.uniform_(-initrange, initrange)
         self.linear_word.bias.data.fill_(0)
+
+        if self.cfg.pos_tag:
+            for p in self.tagger.parameters():
+                p.data.uniform_(-initrange, initrange)
+            self.linear_tag.weight.data.uniform_(-initrange, initrange)
+            self.linear_tag.bias.data.fill_(0)
 
     def _init_hidden(self, bsz):
         nlayers = self.cfg.nlayers
@@ -115,16 +106,15 @@ class DecoderRNN(Decoder):
 
         # insert sos in the first column
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
-        sos_ids_tag = self._get_sos_batch(batch_size, self.vocab_pos)
         ids_dec = torch.cat([sos_ids_dec, ids_dec], 1)
-        ids_tag = torch.cat([sos_ids_tag, ids_tag], 1)
+
         # length should be increased as well
         lengths = [length + 1 for length in lengths]
 
         # Decoder
         init_state = self._init_hidden(batch_size)
         embed_dec = self.embed_dec(ids_dec) # for teacher forcing
-        embed_tag = self.embed_tag(ids_tag) # for teacher forcing
+
         all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
         augmented_input = torch.cat([embed_dec, all_hidden], 2)
         packed_in_dec = pack_padded_sequence(input=augmented_input,
@@ -169,9 +159,7 @@ class DecoderRNN(Decoder):
 
         # <sos>
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
-        sos_ids_tag = self._get_sos_batch(batch_size, self.vocab_pos)
         embed_dec = self.embed_dec(sos_ids_dec)
-        embed_tag = self.embed_tag(sos_ids_tag)
         # sos_embedding : [batch_size, 1, embedding_size]
 
         # unroll
@@ -209,7 +197,6 @@ class DecoderRNN(Decoder):
 
             # for the next step
             embed_dec = self.embed_dec(ids_word)
-            embed_tag = self.embed_tag(ids_tag)
 
             # append generated token ids & outs at each step
             all_ids_word.append(ids_word)

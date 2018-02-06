@@ -129,7 +129,7 @@ def process_corpus_tag(cfg):
 
         # build tag vocabulary & convert tags to ids
         tag_vocab = Vocab(counter=tag_cnt, specials=['<pad>', '<sos>', '<eos>'])
-        tag_vocab.generate_embedding(embed_dim=cfg.tag_embed_size)
+        # tag_vocab.generate_embedding(embed_dim=cfg.tag_embed_size)
         tags_ids = tag_vocab.numericalize_sents(tags)
 
         with StopWatch('Saving text (Main corpus)'):

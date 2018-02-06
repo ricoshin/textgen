@@ -40,7 +40,7 @@ class Network(object):
         else:
             self.enc = EncoderRNN(cfg, vocab)
         # Decoder
-        self.dec = DecoderRNN(cfg, vocab, vocab_pos)
+        self.dec = DecoderRNN(cfg, vocab)
         # Generator
         self.gen = Generator(cfg)
         # Discriminator - code level
