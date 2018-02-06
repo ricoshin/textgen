@@ -14,7 +14,7 @@ parser.add_argument('--prepro_dir', type=str, default='prepro',
                     help='location of the preprocessed data')
 parser.add_argument('--data_dir', type=str, default='data',
                     help='location of the datasets')
-parser.add_argument('--data_name', type=str, default='snli',
+parser.add_argument('--data_name', type=str, default='simple_questions',
                     choices=['snli','books', 'simple_questions'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')

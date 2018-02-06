@@ -21,11 +21,11 @@ class SampleDiscriminator(nn.Module):
         # Step represetation can be :
         #   - hidden states which each word is generated from
         #   - embeddings that were porduced from generated word indices
-        # inputs.size() : [batch_size(N), 1(C), max_len(H), embed_size(W)]
+        # inputs.size() : [batch_size(N), 1(C), max_len(H), word_embed_size(W)]
         self.cfg = cfg
         self.in_c = in_chann = self._get_in_c_size()
         if cfg.disc_s_in == 'embed':
-            self.embedding = WordEmbedding(cfg, vocab.embed_mat)
+            self.embedding = WordEmbedding(cfg, vocab.embed)
 
         def next_w(in_size, f_size, s_size):
             # in:width, f:filter, s:stride
@@ -35,10 +35,10 @@ class SampleDiscriminator(nn.Module):
         s = [1, 2, 2] # stride (last_one should be calculated later)
         f = [3, 3, 3] # filter (last_one should be calculated later)
         #c = [in_chann] + [128*(2**(i)) for i in range(n_conv)] # channel
-        c = [in_chann] + [300, 500, 700, 900]
+        c = [in_chann] + [300, 400, 500, 600]
 
 
-        w = [cfg.max_len + 1] # including sos/eos
+        w = [cfg.max_len] # including sos/eos
         for i in range(len(f)):
             w.append(next_w(w[i], f[i], s[i]))
 
@@ -55,7 +55,7 @@ class SampleDiscriminator(nn.Module):
         log.debug(w)  # widths = [21, 19, 9, 4, 1]
         log.debug(c) # channels = [300, 300, 500, 700, 900]
         log.debug(fc)  # size_fc = [1920, 1920, 1]
-        import pdb; pdb.set_trace()
+
         # expected input dim
         #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
 
@@ -79,7 +79,7 @@ class SampleDiscriminator(nn.Module):
         # wordwise attention layers
         self.word_attns = []
         for i in range(n_conv - 1):
-            word_attn = WordAttention(cfg, c_[i], w_[i], n_mat, n_attns[i],
+            word_attn = WordAttention(c_[i], w_[i], n_mat, n_attns[i],
                                       cfg.word_temp, last_act='softmax')
             self.word_attns.append(word_attn)
             self.add_module("WordAttention(%d)" % (i+1), word_attn)
@@ -100,10 +100,10 @@ class SampleDiscriminator(nn.Module):
         self.criterion_bce = nn.BCELoss()
         #self.criterion_cs = F.cosine_similarity()
 
-    def forward(self, x, train=False):
-        self._check_train(train)
-        x = self._adaptive_embedding(x) # [bsz, max_len, embed_size]
-        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
+
+    def forward(self, x):
+        x = self._adaptive_embedding(x) # [bsz, max_len, word_embed_size]
+        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, word_embed_size, 1, max_len]
 
         # generate mask for wordwise attention
         pad_masks = self._generate_pad_masks(x)
@@ -129,10 +129,8 @@ class SampleDiscriminator(nn.Module):
             w_attn.append(attn)
 
         # stack along height dim
-        try:
-            x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
-        except:
-            import pdb; pdb.set_trace()
+        x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
+
         # layerwise attention
         l_ctx, l_attn = self.layer_attn(x_a)
         # ctx : [bsz, n_mat, 1, 1]
@@ -148,13 +146,6 @@ class SampleDiscriminator(nn.Module):
         # layer_attn : [n_layers, bsz]
         return x_a, [w_attn, l_attn]
 
-    def _check_train(self, train):
-        if train:
-            self.train()
-            self.zero_grad()
-        else:
-            self.eval()
-
     def _adaptive_embedding(self, indices):
         if self.cfg.disc_s_in == 'embed':
             if len(indices.size()) == 2:
@@ -168,14 +159,14 @@ class SampleDiscriminator(nn.Module):
 
     def _get_in_c_size(self):
         if self.cfg.disc_s_in == 'embed':
-            return self.cfg.embed_size
+            return self.cfg.word_embed_size
         elif self.cfg.disc_s_in == 'hidden':
             return self.cfg.hidden_size
         else:
             raise Exception("Unknown disc input type!")
 
     def _generate_pad_masks(self, x):
-        # [bsz, embed_size, 1, max_len]
+        # [bsz, word_embed_size, 1, max_len]
         x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False)
         # [bsz, 1, 1, max_len]
         masks = []
