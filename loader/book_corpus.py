@@ -97,6 +97,8 @@ class BookCorpusMultiProcessor(LargeFileMultiProcessor):
                     # tokenize line & count words
                     token = tokenizer(l.strip())
                     tokens.append([t.lower() for t in token])
+            if len(tokens) > self.max_len:
+                return None
             #if len(tokens) > self.max_len or len(tokens) < self.min_len:
             #    return None
             return tokens[0], tokens[1]

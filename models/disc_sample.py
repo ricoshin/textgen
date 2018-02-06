@@ -35,7 +35,7 @@ class SampleDiscriminator(nn.Module):
         s = [1, 2, 2] # stride (last_one should be calculated later)
         f = [3, 3, 3] # filter (last_one should be calculated later)
         #c = [in_chann] + [128*(2**(i)) for i in range(n_conv)] # channel
-        c = [in_chann] + [300, 400, 500, 600]
+        c = [in_chann] + [300, 500, 700, 900]
 
 
         w = [cfg.max_len + 1] # including sos/eos
@@ -55,7 +55,7 @@ class SampleDiscriminator(nn.Module):
         log.debug(w)  # widths = [21, 19, 9, 4, 1]
         log.debug(c) # channels = [300, 300, 500, 700, 900]
         log.debug(fc)  # size_fc = [1920, 1920, 1]
-
+        import pdb; pdb.set_trace()
         # expected input dim
         #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
 
@@ -129,8 +129,10 @@ class SampleDiscriminator(nn.Module):
             w_attn.append(attn)
 
         # stack along height dim
-        x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
-
+        try:
+            x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
+        except:
+            import pdb; pdb.set_trace()
         # layerwise attention
         l_ctx, l_attn = self.layer_attn(x_a)
         # ctx : [bsz, n_mat, 1, 1]
