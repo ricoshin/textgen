@@ -116,8 +116,8 @@ class EncoderDiscArchitect(object):
 
 
 class EncoderDisc(Encoder):
-    def __init__(self, cfg, vocab):
-        super(EncoderDisc, self).__init__(cfg, vocab)
+    def __init__(self, cfg, embed):
+        super(EncoderDisc, self).__init__(cfg, embed)
         # Sentence should be represented as a matrix : [max_len x step_size]
         # Step represetation can be :
         #   - hidden states which each word is generated from

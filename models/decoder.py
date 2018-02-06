@@ -5,7 +5,6 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
-from nn.embedding import WordEmbedding
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
@@ -13,15 +12,12 @@ log = logging.getLogger('main')
 
 
 class Decoder(nn.Module):
-    def __init__(self, cfg, vocab):
+    def __init__(self, cfg, embed):
         super(Decoder, self).__init__()
         self.cfg = cfg
         self.grad_norm = None
-        self.vocab = vocab
-        self.embed_dec = WordEmbedding(vocab_size=cfg.vocab_size,
-                                       embed_size=cfg.word_embed_size,
-                                       fix_embed=cfg.fix_embed,
-                                       init_embed=vocab.embed)
+        self.embed = embed
+        self.vocab = embed.vocab
 
     def forward(self, *input):
         raise NotImplementedError
@@ -33,8 +29,9 @@ class Decoder(nn.Module):
 
 
 class DecoderRNN(Decoder):
-    def __init__(self, cfg, vocab):
-        super(DecoderRNN, self).__init__(cfg, vocab)
+    def __init__(self, cfg, embed):
+        super(DecoderRNN, self).__init__(cfg, embed)
+
         input_size_dec = cfg.word_embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=input_size_dec,
                                hidden_size=cfg.hidden_size,
@@ -113,7 +110,7 @@ class DecoderRNN(Decoder):
 
         # Decoder
         init_state = self._init_hidden(batch_size)
-        embed_dec = self.embed_dec(ids_dec) # for teacher forcing
+        embed_dec = self.embed(ids_dec) # for teacher forcing
 
         all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
         augmented_input = torch.cat([embed_dec, all_hidden], 2)
@@ -159,7 +156,7 @@ class DecoderRNN(Decoder):
 
         # <sos>
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
-        embed_dec = self.embed_dec(sos_ids_dec)
+        embed_dec = self.embed(sos_ids_dec)
         # sos_embedding : [batch_size, 1, embedding_size]
 
         # unroll
@@ -196,7 +193,7 @@ class DecoderRNN(Decoder):
                                                             finished)
 
             # for the next step
-            embed_dec = self.embed_dec(ids_word)
+            embed_dec = self.embed(ids_word)
 
             # append generated token ids & outs at each step
             all_ids_word.append(ids_word)

@@ -178,7 +178,7 @@ class Decoder(nn.Module):
         else:
             state = self.init_hidden(batch_size)
 
-        embeddings = self.embed_dec(indices) # for teacher forcing
+        embeddings = self.embed(indices) # for teacher forcing
         augmented_embeddings = torch.cat([embeddings, all_hidden], 2)
         packed_embeddings = pack_padded_sequence(input=augmented_embeddings,
                                                  lengths=lengths,
@@ -222,7 +222,7 @@ class Decoder(nn.Module):
         self.start_symbols.data.fill_(1)
         # self.start_symbols.size() : [batch_size, 1]
 
-        embedding = self.embed_dec(self.start_symbols)
+        embedding = self.embed(self.start_symbols)
         # embedding : [batch_size, 1, embedding_size]
         inputs = torch.cat([embedding, hidden.unsqueeze(1)], 2)
 
@@ -259,7 +259,7 @@ class Decoder(nn.Module):
             all_ids.append(ids)
             all_outs.append(outs)
             # for the next step
-            embed = self.embed_dec(ids)
+            embed = self.embed(ids)
             inputs = torch.cat([embed, hidden.unsqueeze(1)], 2)
 
         # concatenate all the results

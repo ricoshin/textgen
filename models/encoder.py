@@ -11,17 +11,13 @@ log = logging.getLogger('main')
 
 
 class Encoder(nn.Module):
-    def __init__(self, cfg, vocab):
+    def __init__(self, cfg, embed):
         super(Encoder, self).__init__()
         self.cfg = cfg
-        self.vocab = vocab
+        self.embed = embed
+        self.vocab = embed.vocab
         self.noise_radius = cfg.noise_radius
         self.grad_norm = None
-        # word embedding
-        self.embed = WordEmbedding(vocab_size=cfg.vocab_size,
-                                   embed_size=cfg.word_embed_size,
-                                   fix_embed=cfg.fix_embed,
-                                   init_embed=vocab.embed)
 
     def forward(self, *input):
         raise NotImplementedError
@@ -45,8 +41,8 @@ class Encoder(nn.Module):
 
 
 class EncoderRNN(Encoder):
-    def __init__(self, cfg, vocab):
-        super(EncoderRNN, self).__init__(cfg, vocab)
+    def __init__(self, cfg, embed):
+        super(EncoderRNN, self).__init__(cfg, embed)
 
         # RNN Encoder and Decoder
         self.encoder = nn.LSTM(input_size=cfg.word_embed_size,

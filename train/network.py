@@ -10,6 +10,7 @@ from models.decoder import DecoderRNN
 from models.disc_code import CodeDiscriminator
 from models.generator import Generator
 from models.disc_sample import SampleDiscriminator
+from nn.embedding import WordEmbedding
 
 log = logging.getLogger('main')
 
@@ -34,13 +35,15 @@ class Network(object):
         self.data_eval = BatchIterator(data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
+        # Word embedding
+        self.embed = WordEmbedding(cfg, vocab)
         # Encoder
         if cfg.enc_disc:
-            self.enc = EncoderDisc(cfg, vocab)
+            self.enc = EncoderDisc(cfg, self.embed)
         else:
-            self.enc = EncoderRNN(cfg, vocab)
+            self.enc = EncoderRNN(cfg, self.embed)
         # Decoder
-        self.dec = DecoderRNN(cfg, vocab)
+        self.dec = DecoderRNN(cfg, self.embed)
         # Generator
         self.gen = Generator(cfg)
         # Discriminator - code level

@@ -18,7 +18,7 @@ def train_ae(cfg, net, batch):
     net.dec.train()
     net.dec.zero_grad()
     # output.size(): batch_size x max_len x ntokens (logits)
-
+    
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.src, batch.len, noise=True, save_grad_norm=True)
     out_word, out_tag = net.dec(code, batch.src, batch.src_tag, batch.len)

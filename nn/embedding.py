@@ -8,23 +8,25 @@ log = logging.getLogger('main')
 
 
 class WordEmbedding(nn.Module):
-    def __init__(self, vocab_size, embed_size, fix_embed, init_embed=None):
+    def __init__(self, cfg, vocab):
         super(WordEmbedding, self).__init__()
-        self.vocab_size = vocab_size
-        self.embed_size = embed_size
+        self.cfg = cfg
+        self.vocab = vocab
+        self.vocab_size = len(vocab)
+        self.embed_size = cfg.word_embed_size
         #self.sos_batch = to_gpu(cfg.cuda, Variable(torch.ones(10,1).long()))
-        self.embed = nn.Embedding(vocab_size, embed_size)
+        self.embed = nn.Embedding(self.vocab_size, self.embed_size)
 
         # glove initialization
-        if init_embed is not None:
-            assert(init_embed.shape[0] == vocab_size)
-            assert(init_embed.shape[1] == embed_size)
-            self.embed.weight.data.copy_(torch.from_numpy(init_embed))
+        if vocab.embed is not None:
+            assert(vocab.embed.shape[0] == self.vocab_size)
+            assert(vocab.embed.shape[1] == self.embed_size)
+            self.embed.weight.data.copy_(torch.from_numpy(vocab.embed))
         else:
             self._init_weights()
 
         # fix embedding
-        if fix_embed:
+        if cfg.fix_embed:
             self.embed.weight.requires_grad = False
 
 
@@ -34,9 +36,13 @@ class WordEmbedding(nn.Module):
         # Initialize Vocabulary Matrix Weight
         self.embedding.weight.data.uniform_(-initrange, initrange)
 
+    def _normalize_columns(self):
+        norm = self.embed.weight.norm(p=2, dim=1, keepdim=True).detach()
+        self.embed.weight.variable = self.embed.weight.div(norm)
 
     def forward(self, indices, mode='hard'):
         assert(mode in ['hard', 'soft'])
+        self._normalize_columns()
         if mode is 'hard':
             # indices : [bsz, max_len]
             assert(len(indices.size()) == 2)
