@@ -46,8 +46,7 @@ class Decoder(nn.Module):
 class DecoderRNN(Decoder):
     def __init__(self, cfg, vocab, vocab_pos=None):
         super(DecoderRNN, self).__init__(cfg, vocab, vocab_pos)
-        embed_size = cfg.word_embed_size + cfg.tag_embed_size
-        input_size_dec = embed_size + cfg.hidden_size
+        input_size_dec = cfg.word_embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=input_size_dec,
                                hidden_size=cfg.hidden_size,
                                num_layers=1,
@@ -55,7 +54,7 @@ class DecoderRNN(Decoder):
                                batch_first=True)
 
         if cfg.pos_tag:
-            input_size_tag = cfg.tag_embed_size + (cfg.hidden_size * 2)
+            input_size_tag = cfg.hidden_size * 2
             self.tagger = nn.LSTM(input_size=input_size_tag,
                                   hidden_size=cfg.hidden_size,
                                   dropout=cfg.dropout,
@@ -127,7 +126,7 @@ class DecoderRNN(Decoder):
         embed_dec = self.embed_dec(ids_dec) # for teacher forcing
         embed_tag = self.embed_tag(ids_tag) # for teacher forcing
         all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
-        augmented_input = torch.cat([embed_dec, embed_tag, all_hidden], 2)
+        augmented_input = torch.cat([embed_dec, all_hidden], 2)
         packed_in_dec = pack_padded_sequence(input=augmented_input,
                                              lengths=lengths,
                                              batch_first=True)
@@ -140,7 +139,7 @@ class DecoderRNN(Decoder):
 
         # POS tagger
         new_out_dec = Variable(out_dec.data, requires_grad=False)
-        augmented_input = torch.cat([new_out_dec, embed_tag, all_hidden], 2)
+        augmented_input = torch.cat([new_out_dec, all_hidden], 2)
         packed_in_tag = pack_padded_sequence(input=augmented_input,
                                              lengths=lengths,
                                              batch_first=True)
@@ -187,10 +186,10 @@ class DecoderRNN(Decoder):
 
         max_len = self.cfg.max_len #+ 1 # including sos/eos
         for i in range(max_len): # for each step
-            input_dec = torch.cat([embed_dec, embed_tag, hidden], 2)
+            input_dec = torch.cat([embed_dec, hidden], 2)
             outs_dec, state_dec = self.decoder(input_dec, state_dec)
             #outs_dec = Variable(outs_dec.data, requires_grad=False)
-            input_tag = torch.cat([outs_dec, embed_tag, hidden], 2)
+            input_tag = torch.cat([outs_dec, hidden], 2)
             outs_tag, state_tag = self.tagger(input_tag, state_tag)
             # output.size() : bath_size x 1(max_len) x nhidden
             # state.size() : 1(num_layer) x batch_size x nhidden
