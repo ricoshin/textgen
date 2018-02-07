@@ -9,7 +9,6 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-from test.evaluate import evaluate_sents
 from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr,
                                 train_disc_ans, eval_disc_ans)
 from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
@@ -21,63 +20,11 @@ from utils.utils import set_random_seed, to_gpu
 log = logging.getLogger('main')
 dict = collections.OrderedDict
 
-from test.evaluate_nltk import truncate, corp_bleu
-from test.bleu_variation import leakgan_bleu, urop_bleu
-
-"""
-codes originally from ARAE : https://github.com/jakezhaojb/ARAE
-some parts are modified
-"""
-"""
-from utils.utils_kenlm import train_ngram_lm, get_ppl
-# save_path : save path of .arpa and .txt file
-# N : N-gram language model. default 5.
-def train_lm(eval_data, gen_data, vocab, save_path, n):
-        #ppl = train_lm(eval_data=test_sents, gen_data = fake_sents,
-        #    vocab = net.vocab,
-        #    save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, sv.batch_step),
-        #    n = cfg.N)
-    # input : test dataset
-    #kenlm_path = '/home/jwy/venv/env36/lib/python3.5/site-packages/kenlm'
-    kenlm_path = '/home/jwy/kenlm'
-    #processing
-    eval_sents = [truncate(s) for s in eval_data]
-    gen_sents = [truncate(s) for s in gen_data]
-
-    # write generated sentences to text file
-    with open(save_path+".txt", "w") as f:
-        # laplacian smoothing
-        for word in vocab.word2idx.keys():
-            if word == '<unk>' or word == '<eos>' or word == '<pad>':
-                continue
-            f.write(word+"\n")
-        for sent in gen_sents:
-            chars = " ".join(sent)
-            f.write(chars+"\n")
-
-    # train language model on generated examples
-    lm = train_ngram_lm(kenlm_path=kenlm_path,
-                        data_path=save_path+".txt",
-                        output_path=save_path+".arpa",
-                        N=n)
-    # empty or too small .arpa file
-    if lm == None:
-        return 2147483647 # assign biggest value
-    # evaluate
-    ppl = get_ppl(lm, eval_sents)
-    return ppl
-"""
-"""
-codes originally from ARAE
-end here
-"""
-
 
 def train(net):
     log.info("Training start!")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
-    fixed_noise = net.gen.make_noise(cfg.eval_size) # for generator
     writer = SummaryWriter(cfg.log_dir)
     sv = Supervisor(net)
     test_q_sents, test_a_sents = load_test_data(cfg)
@@ -89,7 +36,7 @@ def train(net):
             for i in range(cfg.niters_ae): # default: 1 (constant)
                 if sv.epoch_stop():
                     break  # end of epoch
-                ans_batch = net.data_ans.next() # answer batch
+                ans_batch = net.data_ae_ans.next() # answer batch
                 batch = net.data_ae.next()
                 rp_ae = train_ae(cfg, net, batch, ans_batch)
                 net.optim_ans_enc.step()
@@ -120,7 +67,7 @@ def train(net):
             net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
             # Autoencoder batch
-            ans_batch = net.data_ans_eval.next()
+            ans_batch = net.data_eval_ans.next()
             batch = net.data_eval.next()
 
             # make encoded answer embedding
@@ -142,8 +89,8 @@ def train(net):
 
             # dump results
             log.info('loss: {}'.format(loss))
-            log.info('targets: {}'.format(targets))
-            log.info('outputs: {}'.format(outputs))
+            #log.info('targets: {}'.format(targets))
+            #log.info('outputs: {}'.format(outputs))
             writer.add_scalar('Disc_Ans/1_loss', loss, sv.global_step)
             sv.save()
 

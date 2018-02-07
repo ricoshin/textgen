@@ -4,6 +4,9 @@ import math
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
+from nn.embedding import WordEmbedding
+from torch.nn.utils.rnn import pack_padded_sequence
+import torch.nn.functional as F
 
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
@@ -25,16 +28,17 @@ class AnswerDiscriminator(nn.Module):
         # the size of each embedding vector.
         self.embed_size = cfg.embed_size # D
         # size of the dictionary of embeddings. ques_vocab_len == ans_vocab_len.
-        self.embed_num = vocab.embed_mat # V
+        self.embed_num = cfg.vocab_size # V
         # label field vocab length. In this implementation: answer embedding dim.
         self.class_num = cfg.ans_embed_size # C
         class_i = 1 # Ci
         self.kernel_num = 100 # Co
         self.kernel_sizes = [3,4,5] # Ks
         self.embed = nn.Embedding(self.embed_num, self.embed_size)
+        #self.embed = WordEmbedding(cfg, vocab.embed_mat)
         # self.convs1 = [nn.Conv2d(class_i, kernel_num, (K, embed_size)) for K in kernel_sizes]
         self.convs1 = nn.ModuleList([nn.Conv2d(
-                    class_i, kernel_num, (K, embed_size)) for K in kernel_sizes])
+                    class_i, self.kernel_num, (K, self.embed_size)) for K in self.kernel_sizes])
         self.dropout = nn.Dropout(cfg.dropout)
         self.fc1 = nn.Linear(len(self.kernel_sizes)*self.kernel_num, self.class_num)
 
@@ -51,11 +55,8 @@ class AnswerDiscriminator(nn.Module):
         x = F.max_pool1d(x, x.size(2)).squeeze(2)
         return x
 
-    def forward(self, x): # N : input length
+    def forward(self, x, lengths): # N : input length
         x = self.embed(x)  # (N, W, D)
-
-        if self.args.static:
-            x = Variable(x)
 
         x = x.unsqueeze(1)  # (N, Ci, W, D)
 

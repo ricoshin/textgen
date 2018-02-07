@@ -107,17 +107,19 @@ def train_disc_ans(cfg, net, batch, ans_batch):
     # make answer encoding
     net.ans_enc.train() # train answer encoder
     net.ans_enc.zero_grad()
-    ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
+    ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
 
     # train answer discriminator
     net.disc_ans.train()
     net.disc_ans.zero_grad()
-    logit = net.disc_ans(batch)
+    logit = net.disc_ans(batch.src, batch.len)
 
     # calculate loss and backpropagate
     # logit : (N=question sent len, C=answer embed size)
     # ans_code : C=answer embed size
-    loss = F.cross_entropy(logit, ans_code) # target : label, text : feature
+    ans_code = Variable(ans_code.data, requires_grad = False)
+    KLD_loss = torch.nn.modules.loss.KLDivLoss()
+    loss = KLD_loss(logit, ans_code) # target : label, text : feature
     loss.backward()
     torch.nn.utils.clip_grad_norm(net.disc_ans.parameters(), cfg.clip)
 
@@ -130,11 +132,17 @@ def train_disc_ans(cfg, net, batch, ans_batch):
 
 def eval_disc_ans(net, batch, ans_code):
     net.disc_ans.eval()
-    logit = net.disc_ans(batch)
-    loss = F.cross_entropy(logit, ans_code)
-    # print sents
-    max_value, max_indices = torch.max(logit, 2)
-    target = batch.tar.view(logit.size(0), -1)
+    logit = net.disc_ans(batch.src, batch.len)
+
+    # calculate kl divergence loss
+    ans_code = Variable(ans_code.data, requires_grad = False)
+    KLD_loss = torch.nn.modules.loss.KLDivLoss()
+    loss = KLD_loss(logit, ans_code) # target : label, text : feature
+    # print discriminator output
+    code = net.enc(batch.src, batch.len, noise=True)
+    output = net.dec(torch.cat((code, logit), 1), batch.src, batch.len)
+    max_value, max_indices = torch.max(output, 2)
+    target = batch.tar.view(output.size(0), -1)
     outputs = max_indices.data.cpu().numpy()
     targets = target.data.cpu().numpy()
-    return logit, loss, targets, ouputs
+    return logit, loss, targets, outputs
