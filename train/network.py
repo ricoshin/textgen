@@ -40,9 +40,10 @@ class Network(object):
         #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
         #                                shuffle=False, num_workers=4,
         #                                collate_fn=batching_dataset)
-        self.data_ans = BatchIterator(train_a_data_loader, cfg.cuda)
+        self.data_ae_ans = BatchIterator(train_a_data_loader, cfg.cuda)
         self.data_ae = BatchIterator(train_q_data_loader, cfg.cuda)
         self.data_gan = BatchIterator(train_q_data_loader, cfg.cuda)
+        self.data_gan_ans = BatchIterator(train_a_data_loader, cfg.cuda)
         self.data_eval = BatchIterator(train_q_data_loader, cfg.cuda, volatile=True)
         self.data_ans_eval = BatchIterator(eval_a_data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)

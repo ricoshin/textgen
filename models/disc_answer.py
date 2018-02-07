@@ -22,15 +22,15 @@ class AnswerDiscriminator(nn.Module):
         # nhidden(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- 1(out)
         self.cfg = cfg
 
-        # the size of each embedding vector
-        self.embed_size = cfg.embed_size
-        # size of the dictionary of embeddings. ques_vocab_len == ans_vocab_len
-        self.embed_num = vocab.embed_mat
-        # label field vocab length. In this implementation: answer embedding dim
-        self.class_num = cfg.ans_embed_size
-        class_i = 1
-        self.kernel_num = 100
-        self.kernel_sizes = [3,4,5]
+        # the size of each embedding vector.
+        self.embed_size = cfg.embed_size # D
+        # size of the dictionary of embeddings. ques_vocab_len == ans_vocab_len.
+        self.embed_num = vocab.embed_mat # V
+        # label field vocab length. In this implementation: answer embedding dim.
+        self.class_num = cfg.ans_embed_size # C
+        class_i = 1 # Ci
+        self.kernel_num = 100 # Co
+        self.kernel_sizes = [3,4,5] # Ks
         self.embed = nn.Embedding(self.embed_num, self.embed_size)
         # self.convs1 = [nn.Conv2d(class_i, kernel_num, (K, embed_size)) for K in kernel_sizes]
         self.convs1 = nn.ModuleList([nn.Conv2d(
@@ -51,7 +51,7 @@ class AnswerDiscriminator(nn.Module):
         x = F.max_pool1d(x, x.size(2)).squeeze(2)
         return x
 
-    def forward(self, x):
+    def forward(self, x): # N : input length
         x = self.embed(x)  # (N, W, D)
 
         if self.args.static:

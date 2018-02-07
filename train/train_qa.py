@@ -10,9 +10,8 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from test.evaluate import evaluate_sents
-from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_dec,
-                                train_gen, train_disc_c, train_disc_s,
-                                generate_codes, eval_gen_dec)
+from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr,
+                                train_disc_ans, eval_disc_ans)
 from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
                                 print_ae_fr_sents, print_gen_sents,
                                 ids_to_sent_for_eval, halve_attns, print_attns)
@@ -98,31 +97,18 @@ def train(net):
                 net.optim_dec.step()
                 sv.inc_batch_step()
 
-            # train gan
+            # train discriminator
             for k in range(sv.gan_niter): # epc0=1, epc2=2, epc4=3, epc6=4
                 # train discriminator/critic (at a ratio of 5:1)
                 for i in range(cfg.niters_gan_d): # default: 5
                     # feed a seen sample within this epoch; good for early training
                     # randomly select single batch among entire batches in the epoch
                     batch = net.data_gan.next()
-                    # make answer encoding
-                    net.ans_enc.train() # train answer encoder
-                    net.ans_enc.zero_grad()
-                    ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
+                    ans_batch = net.data_gan_ans.next()
 
-                    # train answer discriminator
-                    net.disc_ans.train()
-                    net.disc_ans.zero_grad()
-                    logit = net.disc_ans(batch...)
+                    # train
+                    logit, loss = train_disc_ans(cfg, net, batch, ans_batch)
 
-                    # calculate loss and backpropagate
-                    loss = F.cross_entropy(logit, target) # target : label, text : feature
-                    loss.backward()
-                    torch.nn.utils.clip_grad_norm(net.disc_ans.parameters(), cfg.clip)
-                    # calculate accuracy
-                    """
-                    need to add functionality
-                    """
                     net.optim_disc_ans.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
@@ -151,35 +137,14 @@ def train(net):
             rp_ae.drop_log_and_events(sv, writer)
             #print_ae_sents(net.vocab, tar)
 
-            # Generator + Discriminator_c
-            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise, ans_code)
+            # Answer Discriminator
+            logit, loss, targets, outputs = eval_disc_ans(net, batch, ans_code)
 
             # dump results
-            rp_dc.update(dict(G=rp_gen.loss)) # NOTE : mismatch
-            rp_dc.drop_log_and_events(sv, writer, False)
-            print_gen_sents(net.q_vocab, ids_fake_eval, cfg.log_nsample)
-
-            # Discriminator_s
-            if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                rp_ds_loss.update(dict(G_Dec=rp_dec.loss))
-                rp_ds_loss.drop_log_and_events(sv, writer)
-                rp_ds_pred.update(dict(G_Dec=rp_dec.pred))
-                rp_ds_pred.drop_log_and_events(sv, writer, False)
-
-                a_real, a_fake = attns
-                ids_real, ids_fake = ids
-                ids_fake_r = ids_fake[len(ids_fake)//2:]
-                ids_fake_f = ids_fake[:len(ids_fake)//2]
-                a_fake_r, a_fake_f = halve_attns(a_fake)
-                print_attns(cfg, net.q_vocab,
-                            dict(Real=(ids_real, a_real),
-                                 Fake_R=(ids_fake_r, a_fake_r),
-                                 Fake_F=(ids_fake_f, a_fake_f)))
-
-            fake_sents = ids_to_sent_for_eval(net.q_vocab, ids_fake_eval)
-            rp_scores = evaluate_sents(test_a_sents, fake_sents)
-            rp_scores.drop_log_and_events(sv, writer, False)
-
+            log.info('loss: {}'.format(loss))
+            log.info('targets: {}'.format(targets))
+            log.info('outputs: {}'.format(outputs))
+            writer.add_scalar('Disc_Ans/1_loss', loss, sv.global_step)
             sv.save()
 
         # end of epoch ----------------------------

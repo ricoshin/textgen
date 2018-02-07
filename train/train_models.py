@@ -103,118 +103,38 @@ def eval_ae_fr(net, batch, ans_code):
 
     return targets, max_ids
 
+def train_disc_ans(cfg, net, batch, ans_batch):
+    # make answer encoding
+    net.ans_enc.train() # train answer encoder
+    net.ans_enc.zero_grad()
+    ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
 
-def eval_gen_dec(cfg, net, fixed_noise, ans_code):
-    net.gen.eval()
-    net.dec.eval()
-    code_fake = net.gen(fixed_noise)
-    ids_fake, _ = net.dec.generate(torch.cat((code_fake, ans_code), 1))
-    return ids_fake
+    # train answer discriminator
+    net.disc_ans.train()
+    net.disc_ans.zero_grad()
+    logit = net.disc_ans(batch)
 
-
-def train_dec(cfg, net, fake_code, ans_code, vocab):
-    net.dec.train()
-    net.dec.zero_grad()
-
-    fake_ids, fake_outs = net.dec.generate(torch.cat((fake_code, ans_code), 1))
-    # fake_outs.size() : [batch_size*2, max_len, vocab_size]
-
-    # register hook on logits of decoder
-    def grad_hook(grad):
-        if cfg.ae_grad_norm:
-            gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
-            if gan_norm == .0:
-                log.warning("zero sample_gan norm!")
-                normed_grad = grad
-            else:
-                normed_grad = grad * net.dec.grad_norm / gan_norm
-        else:
-            normed_grad = grad
-
-        normed_grad *= math.fabs(cfg.gan_to_ae)
-        return normed_grad
-
-    net.dec.logits.register_hook(grad_hook)
-
-    # loss
-    pred_fake, attn_fake = net.disc_s(fake_outs)
-    label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_fake.size())))
-    loss = net.disc_s.criterion_bce(pred_fake, label_real)
-
-    # pred average
-    mean = pred_fake.mean()
-
-    # backward
+    # calculate loss and backpropagate
+    # logit : (N=question sent len, C=answer embed size)
+    # ans_code : C=answer embed size
+    loss = F.cross_entropy(logit, ans_code) # target : label, text : feature
     loss.backward()
+    torch.nn.utils.clip_grad_norm(net.disc_ans.parameters(), cfg.clip)
 
-    return ResultPackage("Decoder_Loss",
-                         dict(loss=loss.data[0], pred=mean.data[0]))
+    # calculate accuracy
+    """
+    need to add functionality
+    """
 
+    return logit, loss
 
-def generate_codes(cfg, net, batch):
-    net.enc.train() # NOTE train encoder!
-    net.enc.zero_grad()
-    net.gen.eval()
-
-    code_real = net.enc(batch.src, batch.len, noise=False)
-    code_fake = net.gen(None)
-
-    return code_real, code_fake
-
-def train_disc_ans(cfg, net, code):
-
-
-def train_disc_c(cfg, net, code_real, code_fake):
-    # clamp parameters to a cube
-    for p in net.disc_c.parameters():
-        p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
-        # WGAN clamp (default:0.01)
-
-    net.disc_c.train()
-    net.disc_c.zero_grad()
-
-    # positive samples ----------------------------
-    def grad_hook(grad):
-        # Gradient norm: regularize to be same
-        # code_grad_gan * code_grad_ae / norm(code_grad_gan)
-
-        # regularize GAN gradient in AE(encoder only) gradient scale
-        # GAN gradient * [norm(Encoder gradient) / norm(GAN gradient)]
-        if cfg.ae_grad_norm: # norm code gradient from critic->encoder
-            gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
-            if gan_norm == .0:
-                log.warning("zero code_gan norm!")
-                normed_grad = grad
-            else:
-                normed_grad = grad * net.enc.grad_norm / gan_norm
-            # grad : gradient from GAN
-            # aeoder.grad_norm : norm(gradient from AE)
-            # gan_norm : norm(gradient from GAN)
-        else:
-            normed_grad = grad
-
-        # weight factor and sign flip
-        normed_grad *= -math.fabs(cfg.gan_to_ae)
-
-        return normed_grad
-
-    code_real.register_hook(grad_hook) # normed_grad
-    # loss / backprop
-    err_d_real = net.disc_c(code_real)
-    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-    err_d_real.backward(one)
-
-    # negative samples ----------------------------
-    # loss / backprop
-    err_d_fake = net.disc_c(code_fake.detach())
-    err_d_fake.backward(one * -1)
-
-    # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs
-    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
-
-    err_d = -(err_d_real - err_d_fake)
-
-    return ResultPackage("Code_GAN_Loss",
-               dict(D_Total=err_d.data[0],
-                    D_Real=err_d_real.data[0],
-                    D_Fake=err_d_fake.data[0]))
+def eval_disc_ans(net, batch, ans_code):
+    net.disc_ans.eval()
+    logit = net.disc_ans(batch)
+    loss = F.cross_entropy(logit, ans_code)
+    # print sents
+    max_value, max_indices = torch.max(logit, 2)
+    target = batch.tar.view(logit.size(0), -1)
+    outputs = max_indices.data.cpu().numpy()
+    targets = target.data.cpu().numpy()
+    return logit, loss, targets, ouputs
