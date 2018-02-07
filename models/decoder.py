@@ -39,7 +39,7 @@ class DecoderRNN(Decoder):
                                dropout=cfg.dropout,
                                batch_first=True)
 
-        self.linear_word = nn.Linear(cfg.hidden_size, cfg.vocab_size)
+        self.linear_word = nn.Linear(cfg.hidden_size, cfg.word_embed_size)
 
         if cfg.pos_tag:
             input_size_tag = cfg.hidden_size * 2
@@ -50,6 +50,7 @@ class DecoderRNN(Decoder):
             self.linear_tag = nn.Linear(cfg.hidden_size, cfg.tag_size)
 
         self.criterion_ce = nn.CrossEntropyLoss()
+        self.criterion_nll = nn.NLLLoss()
         self._init_weights()
 
     def _init_weights(self):
@@ -92,6 +93,16 @@ class DecoderRNN(Decoder):
         out_mask = ids_mask.unsqueeze(2).expand_as(out)
         out = out * out_mask.float()
         return ids, out, finished
+
+    def _compute_cosine_sim(self, out_word):
+        # compute cosine similarity
+        embed = self.embed.embed.weight.detach()
+        vocab_size, embed_size = embed.size()
+        embed = embed.permute(1, 0) # [embed_size, vocab_size]
+        out_embed = out_word.view(-1, embed_size) # [bsz(*maxlen), embed_size]
+        cos_sim = torch.mm(out_embed, embed) # [bsz(*maxlen), vocab_size]
+        cos_sim = cos_sim.view(*out_word.size()[:-1], vocab_size)
+        return cos_sim # [bsz, (max_len,) vocab_size]
 
     def forward(self, hidden, ids_dec, ids_tag, lengths):
         decoded = self._decode(hidden, ids_dec, ids_tag, lengths)
@@ -137,13 +148,16 @@ class DecoderRNN(Decoder):
         # reshape to batch_size*maxlen x nhidden before linear over vocab
         out_dec = out_dec.contiguous().view(-1, self.cfg.hidden_size)
         words = self.linear_word(out_dec) # output layer for word prediction
-        words = words.view(batch_size, max(lengths), self.cfg.vocab_size)
+        words = words.view(batch_size, max(lengths), self.cfg.word_embed_size)
+        words = F.normalize(words, p=2, dim=2)
+        cos_sim = self._compute_cosine_sim(words) # [bsz, len, vocab_size]
+        words = F.log_softmax(cos_sim, 2)
 
         out_tag = out_tag.contiguous().view(-1, self.cfg.hidden_size)
         tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 
-        return words, tags # decoded.size() : batch x max_len x ntokens [logits]
+        return words, tags
 
     def generate(self, hidden):
         if not self.cfg.backprop_gen:
@@ -178,14 +192,15 @@ class DecoderRNN(Decoder):
             outs_tag, state_tag = self.tagger(input_tag, state_tag)
             # output.size() : bath_size x 1(max_len) x nhidden
             # state.size() : 1(num_layer) x batch_size x nhidden
-            logit_word = self.linear_word(outs_dec.squeeze(1))
-            logit_tag = self.linear_tag(outs_tag.squeeze(1))
-            # output.squeeze(1) : batch_size x nhidden (output layer)
-            # words : batch_size x ntokens
-            _, ids_word = torch.max(logit_word, 1, keepdim=True)
-            _, ids_tag = torch.max(logit_tag, 1, keepdim=True)
+            logit_word = self.linear_word(outs_dec)
+            logit_tag = self.linear_tag(outs_tag)
 
-            outs = F.softmax(logit_tag/1e-6, 1).unsqueeze(1)
+            logit_word = F.normalize(logit_word, p=2, dim=2)
+            cos_sim = self._compute_cosine_sim(logit_word)
+            _, ids_word = torch.max(cos_sim, 2)
+            _, ids_tag = torch.max(logit_tag, 2)
+
+            outs = F.log_softmax(logit_tag/1e-6, 1)
             # [batch_size, 1 ntoken]
 
             # if eos token has already appeared, fill zeros
@@ -194,6 +209,7 @@ class DecoderRNN(Decoder):
 
             # for the next step
             embed_dec = self.embed(ids_word)
+            #embed_dec = logit_word
 
             # append generated token ids & outs at each step
             all_ids_word.append(ids_word)

@@ -4,6 +4,7 @@ import os
 
 import torch
 from torch.autograd import Variable
+from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
@@ -243,7 +244,7 @@ def load_test_data(cfg):
             test_sents.append(line.strip())
     return test_sents
 
-def mask_sequence_with_n_inf(self, seqs, seq_lens):
+def mask_sequence_with_n_inf(seqs, seq_lens):
     max_seq_len = seqs.size(1)
     masks = seqs.data.new(*seqs.size()).zero_()
     for mask, seq_len in zip(masks, seq_lens):
@@ -252,3 +253,15 @@ def mask_sequence_with_n_inf(self, seqs, seq_lens):
             mask[seq_len:] = float('-inf')
     masks = Variable(masks, requires_grad=False)
     return seqs + masks
+
+def to_one_hot(cfg, indices, num_class):
+    size = indices.size()
+    dim = len(size)
+    indices = torch.unsqueeze(indices.data, dim)
+    one_hot = torch.FloatTensor(*size, num_class).zero_()
+    if isinstance(indices, Variable):
+        one_hot = Variable(one_hot, requires_grad=False)
+    if cfg.cuda:
+        one_hot = to_gpu(cfg.cuda, one_hot)
+    one_hot.scatter_(dim, indices, 1.)
+    return one_hot

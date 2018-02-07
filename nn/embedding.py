@@ -1,6 +1,7 @@
 import logging
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 from utils.utils import to_gpu
 
@@ -36,13 +37,9 @@ class WordEmbedding(nn.Module):
         # Initialize Vocabulary Matrix Weight
         self.embedding.weight.data.uniform_(-initrange, initrange)
 
-    def _normalize_columns(self):
-        norm = self.embed.weight.norm(p=2, dim=1, keepdim=True).detach()
-        self.embed.weight.variable = self.embed.weight.div(norm)
-
     def forward(self, indices, mode='hard'):
         assert(mode in ['hard', 'soft'])
-        self._normalize_columns()
+        self.embed.weight.variable = F.normalize(self.embed.weight, p=2, dim=1)
         if mode is 'hard':
             # indices : [bsz, max_len]
             assert(len(indices.size()) == 2)

@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from train.train_helper import ResultPackage
+from train.train_helper import ResultPackage, to_one_hot
 from utils.utils import to_gpu
 
 dict = collections.OrderedDict
@@ -18,7 +18,7 @@ def train_ae(cfg, net, batch):
     net.dec.train()
     net.dec.zero_grad()
     # output.size(): batch_size x max_len x ntokens (logits)
-    
+
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.src, batch.len, noise=True, save_grad_norm=True)
     out_word, out_tag = net.dec(code, batch.src, batch.src_tag, batch.len)
@@ -43,7 +43,11 @@ def train_ae(cfg, net, batch):
 
     # compute word prediction loss and accuracy
     msk_out, msk_tar = mask_output_target(out_word, batch.tar, cfg.vocab_size)
-    loss_word = net.dec.criterion_ce(msk_out, msk_tar)
+    # selected = to_gpu(cfg.cuda, Variable(torch.zeros(msk_tar.size())))
+    # for i, (out, tar) in enumerate(zip(msk_out, msk_tar)):
+    #    selected[i] = out[tar]
+    # loss_word = - torch.mean(selected)
+    loss_word = net.dec.criterion_nll(msk_out, msk_tar)
     _, max_ids = torch.max(msk_out, 1)
     acc_word = torch.mean(max_ids.eq(msk_tar).float())
 
