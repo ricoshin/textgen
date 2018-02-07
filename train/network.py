@@ -46,19 +46,14 @@ class Network(object):
         self.data_eval = BatchIterator(train_q_data_loader, cfg.cuda, volatile=True)
         self.data_ans_eval = BatchIterator(eval_a_data_loader, cfg.cuda, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
-        
+
         # Encoder for answer
         self.ans_enc = Encoder(cfg, a_vocab)
         # Autoencoder
         self.enc = Encoder(cfg, q_vocab)
         self.dec = Decoder(cfg, q_vocab)
-        # Generator
-        self.gen = Generator(cfg)
-        # Discriminator - code level
-        self.disc_c = CodeDiscriminator(cfg)
-        # Discriminator - sample level
-        if cfg.with_attn:
-            self.disc_s = SampleDiscriminator(cfg, q_vocab)
+        # Answer Discriminator
+        self.disc_ans = AnswerDiscriminator(cfg, q_vocab)
 
         # Print network modules
         log.info(self.enc)
@@ -75,7 +70,7 @@ class Network(object):
         #params_gen = filter(lambda p: p.requires_grad, self.gen.parameters())
         #params_disc_c = filter(lambda p: p.requires_grad,
         #                       self.disc_c.parameters())
-        
+
         self.optim_ans_enc = optim.SGD(params_ans_enc, lr=cfg.lr_ae)
         self.optim_enc = optim.SGD(params_enc, lr=cfg.lr_ae) # default: 1
         self.optim_dec = optim.SGD(params_dec, lr=cfg.lr_ae) # default: 1
@@ -85,12 +80,9 @@ class Network(object):
         self.optim_disc_c = optim.Adam(self.disc_c.parameters(),
                                        lr=cfg.lr_gan_d, # default: 0.00001
                                        betas=(cfg.beta1, 0.999))
-        if cfg.with_attn:
-            params_disc_s = filter(lambda p: p.requires_grad,
-                                   self.disc_s.parameters())
-            self.optim_disc_s = optim.Adam(params_disc_s,
-                                           lr=cfg.lr_gan_d, # default: 0.00001
-                                           betas=(cfg.beta1, 0.999))
+        self.optim_disc_ans = optim.Adam(self.disc_ans.parameters(),
+                                        lr=cfg.lr_gan_d,
+                                        betas=(cfg.beta1, 0.999))
 
         if cfg.cuda:
             self.ans_enc = self.ans_enc.cuda()

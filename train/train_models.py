@@ -21,7 +21,7 @@ def train_ae(cfg, net, batch, ans_batch):
     net.dec.train()
     net.dec.zero_grad()
     # output.size(): batch_size x max_len x ntokens (logits)
-    
+
     # output = answer encoder(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
     ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
     #output = ae(batch.src, batch.len, noise=True)
@@ -151,22 +151,6 @@ def train_dec(cfg, net, fake_code, ans_code, vocab):
                          dict(loss=loss.data[0], pred=mean.data[0]))
 
 
-def train_gen(cfg, net):
-    net.gen.train()
-    net.gen.zero_grad()
-
-    fake_code = net.gen(None)
-    err_g = net.disc_c(fake_code)
-
-    # loss / backprop
-    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-    err_g.backward(one)
-
-    result = ResultPackage("Generator_Loss", dict(loss=err_g.data[0]))
-
-    return result, fake_code
-
-
 def generate_codes(cfg, net, batch):
     net.enc.train() # NOTE train encoder!
     net.enc.zero_grad()
@@ -176,6 +160,8 @@ def generate_codes(cfg, net, batch):
     code_fake = net.gen(None)
 
     return code_real, code_fake
+
+def train_disc_ans(cfg, net, code):
 
 
 def train_disc_c(cfg, net, code_real, code_fake):
@@ -232,57 +218,3 @@ def train_disc_c(cfg, net, code_real, code_fake):
                dict(D_Total=err_d.data[0],
                     D_Real=err_d_real.data[0],
                     D_Fake=err_d_fake.data[0]))
-
-
-def train_disc_s(cfg, net, batch, code_real, code_fake, ans_code):
-    net.dec.eval()
-    net.disc_s.train()
-    net.disc_s.zero_grad()
-
-    ids_real, outs_real = net.dec.generate(torch.cat((code_real, ans_code), 1))
-    ids_fake, outs_fake = net.dec.generate(torch.cat((code_fake, ans_code), 1))
-
-    # "real" fake (embeddings)
-    outs_fake = torch.cat([outs_real, outs_fake], dim=0)
-    code_fake = torch.cat([code_real, code_fake], dim=0)
-    # "real" real ids
-    ids_real = batch.tar.view(cfg.batch_size, -1)
-    ids_real = append_pads(cfg, ids_real, net.q_vocab)
-    #outs_real = batch.tar.view(cfg.batch_size, -1)
-
-    # clamp parameters to a cube
-    for p in net.disc_s.parameters():
-        p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
-        # WGAN clamp (default:0.01)
-
-    pred_real, attn_real = net.disc_s(ids_real.detach())
-    pred_fake, attn_fake = net.disc_s(outs_fake.detach())
-
-    # GAN loss
-    label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
-    label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
-    loss_real = net.disc_s.criterion_bce(pred_real, label_real)
-    loss_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
-    loss_total = loss_real + loss_fake
-
-    # pred mean
-    real_mean = pred_real.mean()
-    fake_mean = pred_fake.mean()
-
-    # backprop.
-    loss_real.backward()
-    loss_fake.backward()
-
-    # results
-    loss_gan = ResultPackage("Sample_GAN_loss",
-                             dict(D_Total=loss_total,
-                                  D_Real=loss_real,
-                                  D_Fake=loss_fake))
-    pred_gan = ResultPackage("Sample_GAN_pred",
-                             dict(D_real=real_mean,
-                                  D_Fake=fake_mean))
-
-    ids = [ids_real.data.cpu().numpy(), ids_fake]
-    attns = [attn_real, attn_fake]
-
-    return loss_gan, pred_gan, ids, attns

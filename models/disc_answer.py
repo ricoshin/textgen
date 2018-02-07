@@ -1,154 +1,61 @@
-"""
-Discriminator that compares real/fake questions
-"""
 import logging
-import numpy as np
+import math
 
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
-import torch.nn.functional as F
 
-from nn.attention import MultiLinear4D, WordAttention, LayerAttention
-from nn.embedding import WordEmbedding
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
-class QuestionDiscriminator(nn.Module):
+
+class AnswerDiscriminator(nn.Module):
     def __init__(self, cfg, vocab):
-        super(QuestionDiscriminator, self).__init__()
-        # Sentence should be represented as a matrix : [max_len x step_size]
-        # Step represetation can be :
-        #   - hidden states which each word is generated from
-        #   - embeddings that were porduced from generated word indices
-        # inputs.size() : [batch_size(N), 1(C), max_len(H), embed_size(W)]
+        super(AnswerDiscriminator, self).__init__()
+        # arguments default values
+        #   ninput: args.nhidden=300
+        #   noutput: 1
+        #   layers: arch_d: 300-300
+
+        # nhidden(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- 1(out)
         self.cfg = cfg
-        self.in_c = in_chann = self._get_in_c_size()
-        if cfg.disc_s_in == 'embed':
-            self.embedding = WordEmbedding(cfg, vocab.embed_mat)
 
-        def next_w(in_size, f_size, s_size):
-            # in:width, f:filter, s:stride
-            return (in_size - f_size) // s_size + 1
-
-        n_conv = 4
-        s = [1, 2, 2] # stride (last_one should be calculated later)
-        f = [3, 3, 3] # filter (last_one should be calculated later)
-        #c = [in_chann] + [128*(2**(i)) for i in range(n_conv)] # channel
-        c = [in_chann] + [300, 400, 500, 600]
-
-
-        w = [cfg.max_len + 1] # including sos/eos
-        for i in range(len(f)):
-            w.append(next_w(w[i], f[i], s[i]))
-
-        # last layer (size dependant on the previous layer)
-        f += [w[-1]]
-        s += [1]
-        w += [1]
-        n_mat = c[-1] # for dimension matching
-        n_fc = 2
-        fc = [n_mat] * (n_fc) + [1]
-
-        log.debug(f)  # filters = [3, 3, 3, 4]
-        log.debug(s)  # strides = [1, 2, 2, 1]
-        log.debug(w)  # widths = [21, 19, 9, 4, 1]
-        log.debug(c) # channels = [300, 300, 500, 700, 900]
-        log.debug(fc)  # size_fc = [1920, 1920, 1]
-
-        # expected input dim
-        #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
-
-        # main convoutional layers
-        self.convs = []
-        self.convs_no_bias = [] # just for calculate zero pad
-        for i in range(n_conv):
-            conv = nn.Conv2d(c[i], c[i+1], (1, f[i]), s[i], bias=True)
-            conv_nb = nn.Conv2d(1, 1, (1, f[i]), s[i], bias=False)
-            self.convs.append(conv)
-            self.convs_no_bias.append(conv_nb)
-            self.add_module("MainConv(%d)" % (i+1), conv)
-            self.add_module("MainConvNoBias(%d)" % (i+1), conv_nb)
-            #bias = nn.Parameter(torch.zeros([1, ch[i+1], heights[i+1], 1]))
-
-        c_ = c[1:] # [300, 500, 700, 900]
-        w_ = w[1:] # [19, 9, 4, 1]
-        #n_attns = [w // 4 for w in w_] # [4, 2, 1]
-        n_attns = [3, 2, 1]
-
-        # wordwise attention layers
-        self.word_attns = []
-        for i in range(n_conv - 1):
-            word_attn = WordAttention(c_[i], w_[i], n_mat, n_attns[i],
-                                      cfg.word_temp, last_act='softmax')
-            self.word_attns.append(word_attn)
-            self.add_module("WordAttention(%d)" % (i+1), word_attn)
-
-        # layerwise attention layer
-        self.layer_attn = LayerAttention(n_mat, n_conv, cfg.layer_temp,
-                                         last_act='softmax')
-
-        # final fc layers for attention
-        self.last_fc_attn = MultiLinear4D(n_mat, 1, dim=1, n_layers=2)
-
-        # final fc layers for reconstruction
-        code_dim = cfg.hidden_size
-        self.last_fc_recon = MultiLinear4D(c[-1], code_dim, dim=1, n_layers=2)
-
-        # dropout & binary CE
+        # the size of each embedding vector
+        self.embed_size = cfg.embed_size
+        # size of the dictionary of embeddings. ques_vocab_len == ans_vocab_len
+        self.embed_num = vocab.embed_mat
+        # label field vocab length. In this implementation: answer embedding dim
+        self.class_num = cfg.ans_embed_size
+        class_i = 1
+        self.kernel_num = 100
+        self.kernel_sizes = [3,4,5]
+        self.embed = nn.Embedding(self.embed_num, self.embed_size)
+        # self.convs1 = [nn.Conv2d(class_i, kernel_num, (K, embed_size)) for K in kernel_sizes]
+        self.convs1 = nn.ModuleList([nn.Conv2d(
+                    class_i, kernel_num, (K, embed_size)) for K in kernel_sizes])
         self.dropout = nn.Dropout(cfg.dropout)
-        self.criterion_bce = nn.BCELoss()
-        #self.criterion_cs = F.cosine_similarity()
+        self.fc1 = nn.Linear(len(self.kernel_sizes)*self.kernel_num, self.class_num)
 
-    def forward(self, x, train=False):
-        self._check_train(train)
-        x = self._adaptive_embedding(x) # [bsz, max_len, embed_size]
-        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size, 1, max_len]
+        # initialize weights
+        init_std = 1/len(self.kernel_sizes)*self.kernel_num
+        try:
+            self.fc1.weight.data.normal_(0, init_std)
+            self.fc1.bias.data.fill_(0)
+        except:
+            pass
 
-        # generate mask for wordwise attention
-        pad_masks = self._generate_pad_masks(x)
+    def conv_and_pool(self, x, conv):
+        x = F.relu(conv(x)).squeeze(3)  # (N, Co, W)
+        x = F.max_pool1d(x, x.size(2)).squeeze(2)
+        return x
 
-        # main conv & wordwise attention
-        w_ctx =[]
-        w_attn = []
-        for i in range(len(self.convs)):
-            # main conv
-            x = F.relu(self.convs[i](x))
-            # wordwise attention
-            if i < (len(self.convs)-1): # before it reaches to the last layer
-                # compute wordwise attention
-                ctx, attn = self.word_attns[i](x, pad_masks[i])
-                # ctx : [bsz, n_mat, 1, 1]
-                # attn : [bsz, 1, 1, len]
-                attn = attn.squeeze().data.cpu().numpy() # [bsz, max_len]
-            else: # for the last layer (no wordwise attention)
-                ctx = x # pass the x without attention
-                attn = np.ones((x.size(0), 1), np.float32) # fill just one
+    def forward(self, x):
+        x = self.embed(x)  # (N, W, D)
 
-            w_ctx.append(ctx)
-            w_attn.append(attn)
-
-        # stack along height dim
-        x_a = torch.cat(w_ctx, dim=2) # [bsz, n_mat, n_layers, 1]
-
-        # layerwise attention
-        l_ctx, l_attn = self.layer_attn(x_a)
-        # ctx : [bsz, n_mat, 1, 1]
-        # attn : [bsz, 1, n_layers, 1]
-        l_attn = l_attn.squeeze().permute(1,0).data.cpu().numpy()
-        # [n_layers, bsz, 1]
-
-        # final fc for attention
-        x_a = self.last_fc_attn(l_ctx).squeeze() # [bsz]
-        x_a = F.sigmoid(x_a)
-
-        # w_attn : [n_layers, bsz, len]
-        # layer_attn : [n_layers, bsz]
-        return x_a, [w_attn, l_attn]
-
-        ----------
+        if self.args.static:
+            x = Variable(x)
 
         x = x.unsqueeze(1)  # (N, Ci, W, D)
 

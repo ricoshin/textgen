@@ -100,7 +100,6 @@ def train(net):
 
             # train gan
             for k in range(sv.gan_niter): # epc0=1, epc2=2, epc4=3, epc6=4
-
                 # train discriminator/critic (at a ratio of 5:1)
                 for i in range(cfg.niters_gan_d): # default: 5
                     # feed a seen sample within this epoch; good for early training
@@ -110,28 +109,21 @@ def train(net):
                     net.ans_enc.train() # train answer encoder
                     net.ans_enc.zero_grad()
                     ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
-                    # train CodeDiscriminator
-                    code_real, code_fake = generate_codes(cfg, net, batch)
-                    rp_dc = train_disc_c(cfg, net, code_real, code_fake)
-                    #err_dc_total, err_dc_real, err_dc_fake = err_dc
 
-                    # train SampleDiscriminator
-                    if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        rp_ds_loss, rp_ds_pred, ids, attns = \
-                            train_disc_s(cfg, net, batch, code_real, code_fake, ans_code)
-                        net.optim_disc_s.step()
+                    # train answer discriminator
+                    net.disc_ans.train()
+                    net.disc_ans.zero_grad()
+                    logit = net.disc_ans(batch...)
 
-                    net.optim_enc.step()
-                    net.optim_disc_c.step()
-
-                # train generator(with disc_c) / decoder(with disc_s)
-                for i in range(cfg.niters_gan_g): # default: 1
-                    ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
-                    rp_gen, code_fake = train_gen(cfg, net)
-                    net.optim_gen.step()
-                    if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-                        rp_dec = train_dec(cfg, net, code_fake, ans_code, net.q_vocab)
-                        net.optim_dec.step()
+                    # calculate loss and backpropagate
+                    loss = F.cross_entropy(logit, target) # target : label, text : feature
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm(net.disc_ans.parameters(), cfg.clip)
+                    # calculate accuracy
+                    """
+                    need to add functionality
+                    """
+                    net.optim_disc_ans.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
                 continue
@@ -140,15 +132,15 @@ def train(net):
             # noise_raius = 0.2(default)
             # noise_anneal = 0.995(default) NOTE: fix this!
             net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
-            
+
             # Autoencoder batch
             ans_batch = net.data_ans_eval.next()
             batch = net.data_eval.next()
-                      
+
             # make encoded answer embedding
             net.ans_enc.eval()
             ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
-            
+
             # Autoencoder eval
             tars, outs = eval_ae_tf(net, batch, ans_code)
             print_ae_tf_sents(net.q_vocab, tars, outs, batch.len, cfg.log_nsample)
@@ -188,33 +180,6 @@ def train(net):
             rp_scores = evaluate_sents(test_a_sents, fake_sents)
             rp_scores.drop_log_and_events(sv, writer, False)
 
-            ### added by JWY
-            if sv.batch_step % (2*cfg.log_interval) == 0:
-                # lower reference size to lighten computation cost
-                bleu = corp_bleu(references=test_a_sents[:min(len(fake_sents)*50, len(test_a_sents))],
-                    hypotheses=fake_sents, gram=4)
-                log.info('nltk bleu-{}: {}'.format(4, bleu))
-                """
-                leakgan = leakgan_bleu(test_a_sents[:min(len(fake_sents)*50, len(test_a_sents))], fake_sents)
-                urop = urop_bleu(test_a_sents[:min(len(fake_sents)*50, len(test_a_sents))], fake_sents)
-                log.info('leakgan_bleu: '+str(leakgan))
-                log.info('urop_bleu: '+str(urop))
-
-                ppl = train_lm(eval_data=test_a_sents, gen_data = fake_sents,
-                    vocab = net.vocab,
-                    save_path = "out/{}/niter{}_lm_generation".format(sv.cfg.name, sv.batch_step),
-                    n = cfg.N)
-                log.info("Perplexity {}".format(ppl))
-                writer.add_scalar('Eval/6_Reverse_Perplexity', ppl, sv.global_step)
-                """
-                writer.add_scalar('Eval/5_nltk_Bleu', bleu, sv.global_step)
-                #writer.add_scalar('Eval/7_leakgan_bleu2', leakgan[0], sv.global_step)
-                #writer.add_scalar('Eval/7_leakgan_bleu3', leakgan[1], sv.global_step)
-                #writer.add_scalar('Eval/7_leakgan_bleu4', leakgan[2], sv.global_step)
-                #writer.add_scalar('Eval/8_urop_bleu2', urop[0], sv.global_step)
-                #writer.add_scalar('Eval/8_urop_bleu3', urop[1], sv.global_step)
-                #writer.add_scalar('Eval/8_urop_bleu4', urop[2], sv.global_step)
-            ### end
             sv.save()
 
         # end of epoch ----------------------------

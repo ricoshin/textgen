@@ -41,6 +41,8 @@ parser.add_argument('--vocab_size', type=int, default=10000,
                     help='cut vocabulary down to this size ')
 parser.add_argument('--embed_size', type=int, default=300,
                     help='size of word embeddings')
+parser.add_argument('--ans_embed_size', type=int, default=300,
+                    help='size of word embeddings')
 parser.add_argument('--hidden_size', type=int, default=300,
                     help='number of hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
@@ -64,7 +66,7 @@ parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
 parser.add_argument('--gan_to_ae', type=float, default=-0.01,
                     help='weight factor passing gradient from gan to encoder')
-parser.add_argument('--dropout', type=float, default=0.0,
+parser.add_argument('--dropout', type=float, default=0.45,
                     help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--kernel_sizes', type=str, default='2,3,4',
                     help='kernel sizes of text CNN')
