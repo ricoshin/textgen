@@ -12,7 +12,7 @@ from utils.utils import to_gpu
 dict = collections.OrderedDict
 
 
-def train_ae(cfg, net, batch):
+def train_ae(cfg, net, batch, mode):
     net.enc.train()
     net.enc.zero_grad()
     net.dec.train()
@@ -21,7 +21,7 @@ def train_ae(cfg, net, batch):
 
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.src, batch.len, noise=True, save_grad_norm=True)
-    out_word, out_tag = net.dec(code, batch.src, batch.src_tag, batch.len)
+    out_word, out_tag = net.dec(code, batch.src, batch.src_tag, batch.len, mode)
 
     def mask_output_target(output, target, ntokens):
         # Create sentence length mask over padding
@@ -78,7 +78,7 @@ def eval_ae_tf(net, batch):
     # output.size(): batch_size x max_len x ntokens (logits)
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.src, batch.len, noise=True)
-    output, _ = net.dec(code, batch.src, batch.src_tag, batch.len)
+    output, _ = net.dec(code, batch.src, batch.src_tag, batch.len, 'tf') #NOTE
 
     max_value, max_indices = torch.max(output, 2)
     target = batch.tar.view(output.size(0), -1)
