@@ -16,7 +16,8 @@ class Vocab(object):
     SOS_ID = 1
     EOS_ID = 2
     UNK_ID = 3
-    SPECIALS = ['<pad>', '<sos>', '<eos>', '<unk>']
+    SPLIT_ID = 4
+    SPECIALS = ['<pad>', '<sos>', '<eos>', '<unk>', '<spl>']
 
     def __init__(self, counter, max_size, min_freq=None, embed_dim=300,
                  init_embed=None):

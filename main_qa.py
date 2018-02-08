@@ -1,7 +1,7 @@
 import logging
 import os
 
-from loader.book_corpus import BookCorpusDataset
+from loader.simple_questions import SimpleQuestionsDataset
 from loader.preprocess import preprocess_data_vocab, preprocess_simpleqa, split_simple_questions
 from test.test import test
 #from train.train import train
