@@ -39,8 +39,7 @@ def train(net):
                 if sv.epoch_stop():
                     break  # end of epoch
                 batch = net.data_ae.next()
-                rp_ae_tf = train_ae(cfg, net, batch, 'tf')
-                rp_ae_fr = train_ae(cfg, net, batch, 'fr')
+                rp_ae = train_ae(cfg, net, batch)
                 net.optim_enc.step()
                 net.optim_dec.step()
                 sv.inc_batch_step()
@@ -90,8 +89,7 @@ def train(net):
             print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
 
             # dump results
-            rp_ae_tf.drop_log_and_events(sv, writer)
-            rp_ae_fr.drop_log_and_events(sv, writer)
+            rp_ae.drop_log_and_events(sv, writer)
             #print_ae_sents(net.vocab, tar)
 
             # Generator + Discriminator_c
