@@ -2,7 +2,7 @@ import numpy as np
 import logging
 import os
 
-from loader.book_corpus import BookCorpusMultiProcessor
+from loader.simple_questions import BookCorpusMultiProcessor
 from loader.vocab import Vocab, GloveMultiProcessor
 from utils.utils import StopWatch
 

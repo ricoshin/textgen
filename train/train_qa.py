@@ -36,9 +36,8 @@ def train(net):
             for i in range(cfg.niters_ae): # default: 1 (constant)
                 if sv.epoch_stop():
                     break  # end of epoch
-                ans_batch = net.data_ae_ans.next() # answer batch
                 batch = net.data_ae.next()
-                rp_ae = train_ae(cfg, net, batch, ans_batch)
+                rp_ae = train_ae(cfg, net, batch)
                 net.optim_ans_enc.step()
                 net.optim_enc.step()
                 net.optim_dec.step()
@@ -51,10 +50,9 @@ def train(net):
                     # feed a seen sample within this epoch; good for early training
                     # randomly select single batch among entire batches in the epoch
                     batch = net.data_gan.next()
-                    ans_batch = net.data_gan_ans.next()
 
                     # train
-                    logit, loss = train_disc_ans(cfg, net, batch, ans_batch)
+                    logit, loss = train_disc_ans(cfg, net, batch)
 
                     net.optim_disc_ans.step()
 
@@ -67,12 +65,11 @@ def train(net):
             net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
             # Autoencoder batch
-            ans_batch = net.data_eval_ans.next()
             batch = net.data_eval.next()
 
             # make encoded answer embedding
             net.ans_enc.eval()
-            ans_code = net.ans_enc(ans_batch.src, ans_batch.len, noise=True)
+            ans_code = net.ans_enc(batch.a, batch.a_len, noise=True)
 
             # Autoencoder eval
             tars, outs = eval_ae_tf(net, batch, ans_code)

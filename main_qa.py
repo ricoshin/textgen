@@ -3,7 +3,7 @@ import os
 
 from loader.simple_questions import SimpleQuestionsDataset
 from loader.preprocess import preprocess_data_vocab, preprocess_simpleqa, split_simple_questions
-from test.test import test
+#from test.test import test
 #from train.train import train
 from train.train_qa import train
 from train.network import Network
@@ -31,10 +31,9 @@ if __name__ == '__main__':
     q_vocab, a_vocab = preprocess_simpleqa(cfg)
 
     # Load dataset
-    train_q_data = BookCorpusDataset(cfg.train_q_data_filepath)
-    train_a_data = BookCorpusDataset(cfg.train_a_data_filepath)
+    train_data = BookCorpusDataset(cfg.train_data_filepath)
     # Build network
-    net = Network(cfg, train_q_data, train_a_data, q_vocab, a_vocab)
+    net = Network(cfg, train_data, q_vocab, a_vocab)
 
     # Train
     if not cfg.test:

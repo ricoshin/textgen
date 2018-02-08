@@ -146,12 +146,14 @@ class SimpleQuestionsDataset(Dataset):
         return [int(x.strip(',')) for x in line.strip('[]\n').split()]
 
 class Batch(object):
-    def __init__(self, question, question_target, answer, answer_target, length):
+    def __init__(self, question, question_target, answer, answer_target,
+                question_length, answer_length):
         self.__question = question
         self.__question_tar = question_target
         self.__answer = answer
         self.__answer_tar = answer_target
-        self.__length = length
+        self.__question_length = question_length
+        self.__answer_length = answer_length
 
     @property
     def q(self):
@@ -170,15 +172,19 @@ class Batch(object):
         return self.__answer_tar
 
     @property
-    def len(self):
-        return self.__length
+    def q_len(self):
+        return self.__question_length
+    @property
+    def a_len(self):
+        return self.__answer_length
 
     def variable(self, volatile=False):
         question = Variable(self.__question, volatile=volatile)
         question_target = Variable(self.__question_tar, volatile=volatile)
         answer = Variable(self.__answer, volatile=volatile)
         answer_target = Variable(self.__answer_tar, volatile=volatile)
-        return Batch(question, question_target, answer, answer_target, self.__length)
+        return Batch(question, question_target, answer, answer_target,
+                self.__question_length, self.__answer_length)
 
     def cuda(self, cuda=True):
         if cuda:
@@ -191,7 +197,8 @@ class Batch(object):
             question_target = self.__question_tar
             question = self.__answer
             answer_target = self.__answer_tar
-        return Batch(question, question_target, answer, answer_target, self.__length)
+        return Batch(question, question_target, answer, answer_target,
+                self.__question_length, self.__answer_length)
 
 
 class BatchingDataset(object):
@@ -221,16 +228,17 @@ class BatchingDataset(object):
             print('q len: ', str(len(question)))
             print('a len: ', str(len(answer)))
             pdb.set_trace()
-        lengths = [(len(sent) + 1) for sent in question] # +1: sos/eos
-        lengths_temp = lengths
-        max_len = max(lengths)
+        q_lengths = [(len(sent) + 1) for sent in question] # +1: sos/eos
+        a_lengths = [(len(sent) + 1) for sent in answer]
+        q_max_len = max(q_lengths)
+        a_max_len - max(a_lengths)
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(question) > 1:
-            question, lengths = self._length_sort(question, lengths)
-            answer, lengths_temp = self._length_sort(answer, lengths_temp)
+            question, q_lengths = self._length_sort(question, q_lengths)
+            answer, a_lengths = self._length_sort(answer, a_lengths)
 
-        def sort_and_pad(lists):
+        def sort_and_pad(lists, max_len):
             out = []
             out_tgt = []
             for sent in lists:
@@ -244,8 +252,8 @@ class BatchingDataset(object):
             out = torch.LongTensor(np.array(out))
             out_tgt = torch.LongTensor(np.array(out_tgt)).view(-1)
             return out, out_tgt
-        question, question_target = sort_and_pad(question)
-        answer, answer_target = sort_and_pad(answer)
+        question, question_target = sort_and_pad(question, q_max_len)
+        answer, answer_target = sort_and_pad(answer, a_max_len)
 
         if self.gpu:
             question = question.cuda()
@@ -253,7 +261,8 @@ class BatchingDataset(object):
             answer = answer.cuda()
             answer_taget = answer_target.cuda()
 
-        return Batch(question, question_target, answer, answer_target, lengths)
+        return Batch(question, question_target, answer, answer_target,
+                q_lengths, a_lengths)
 
     def _length_sort(self, items, lengths, descending=True):
         items = list(zip(items, lengths))
