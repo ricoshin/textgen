@@ -22,7 +22,7 @@ def train_ae(cfg, net, batch):
     net.enc.zero_grad()
     net.dec.train()
     net.dec.zero_grad()
-    
+
     # output.size(): batch_size x max_len x ntokens (logits)
     # output = answer encoder(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
     ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False, save_grad_norm=True)
@@ -104,6 +104,104 @@ def eval_ae_fr(net, batch, ans_code):
     targets = targets.data.cpu().numpy()
 
     return targets, max_ids
+
+def eval_gen_dec(cfg, net, fixed_noise):
+    net.gen.eval()
+    net.dec.eval()
+    code_fake = net.gen(fixed_noise)
+    ids_fake, _ = net.dec.generate(code_fake)
+    return ids_fake
+
+
+def train_gen(cfg, net, batch):
+    net.gen.train()
+    net.gen.zero_grad()
+
+    net.ans_enc.eval()
+    ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False, save_grad_norm=True)
+
+    fake_code = net.gen(None)
+    err_g = net.disc_c(torch.cat((fake_code, ans_code), 1))
+
+    # loss / backprop
+    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
+    err_g.backward(one)
+
+    result = ResultPackage("Generator_Loss", dict(loss=err_g.data[0]))
+
+    return result, fake_code
+
+def generate_codes(cfg, net, batch):
+    net.enc.train() # NOTE train encoder!
+    net.enc.zero_grad()
+    net.gen.eval()
+
+    code_real = net.enc(batch.q, batch.q_len, noise=False)
+    code_fake = net.gen(None)
+
+    return code_real, code_fake
+
+
+def train_disc_c(cfg, net, code_real, code_fake, batch):
+    # make ans_code
+    net.ans_enc.eval()
+    ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False, save_grad_norm=True)
+
+    # clamp parameters to a cube
+    for p in net.disc_c.parameters():
+        p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
+        # WGAN clamp (default:0.01)
+
+    net.disc_c.train()
+    net.disc_c.zero_grad()
+
+    # positive samples ----------------------------
+    def grad_hook(grad):
+        # Gradient norm: regularize to be same
+        # code_grad_gan * code_grad_ae / norm(code_grad_gan)
+
+        # regularize GAN gradient in AE(encoder only) gradient scale
+        # GAN gradient * [norm(Encoder gradient) / norm(GAN gradient)]
+        if cfg.ae_grad_norm: # norm code gradient from critic->encoder
+            gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
+            if gan_norm == .0:
+                log.warning("zero code_gan norm!")
+                import ipdb; ipdb.set_trace()
+                normed_grad = grad
+            else:
+                normed_grad = grad * net.enc.grad_norm / gan_norm
+            # grad : gradient from GAN
+            # aeoder.grad_norm : norm(gradient from AE)
+            # gan_norm : norm(gradient from GAN)
+        else:
+            normed_grad = grad
+
+        # weight factor and sign flip
+        normed_grad *= -math.fabs(cfg.gan_to_ae)
+
+        return normed_grad
+
+    code_real.register_hook(grad_hook) # normed_grad
+    # loss / backprop
+    err_d_real = net.disc_c(torch.cat((code_real, ans_code), 1))
+    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
+    err_d_real.backward(one)
+
+    # negative samples ----------------------------
+    # loss / backprop
+    err_d_fake = net.disc_c(torch.cat((code_fake.detach(), ans_code), 1))
+    err_d_fake.backward(one * -1)
+
+    # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs
+    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
+
+    err_d = -(err_d_real - err_d_fake)
+
+    return ResultPackage("Code_GAN_Loss",
+               dict(D_Total=err_d.data[0],
+                    D_Real=err_d_real.data[0],
+                    D_Fake=err_d_fake.data[0]))
+
 
 def train_disc_ans(cfg, net, batch):
     # make answer encoding

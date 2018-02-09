@@ -42,12 +42,18 @@ class Network(object):
         # Autoencoder
         self.enc = Encoder(cfg, q_vocab)
         self.dec = Decoder(cfg, q_vocab)
+        # Generator
+        self.gen = Generator(cfg)
+        # Discriminator - code level
+        self.disc_c = CodeDiscriminator(cfg)
         # Answer Discriminator
         self.disc_ans = AnswerDiscriminator(cfg, q_vocab)
 
         # Print network modules
         log.info(self.enc)
         log.info(self.dec)
+        log.info(self.gen)
+        log.info(self.disc_c)
         log.info(self.ans_enc)
         log.info(self.disc_ans)
 
@@ -55,6 +61,12 @@ class Network(object):
         params_ans_enc = filter(lambda p: p.requires_grad, self.ans_enc.parameters())
         params_enc = filter(lambda p: p.requires_grad, self.enc.parameters())
         params_dec = filter(lambda p: p.requires_grad, self.dec.parameters())
+        self.optim_gen = optim.Adam(self.gen.parameters(),
+                                    lr=cfg.lr_gan_g, # default: 0.00005
+                                    betas=(cfg.beta1, 0.999))
+        self.optim_disc_c = optim.Adam(self.disc_c.parameters(),
+                                       lr=cfg.lr_gan_d, # default: 0.00001
+                                       betas=(cfg.beta1, 0.999))
         params_disc_ans = filter(lambda p: p.requires_grad, self.disc_ans.parameters())
 
         self.optim_ans_enc = optim.SGD(params_ans_enc, lr=cfg.lr_ae)
@@ -68,6 +80,8 @@ class Network(object):
             self.ans_enc = self.ans_enc.cuda()
             self.enc = self.enc.cuda()
             self.dec = self.dec.cuda()
+            self.gen = self.gen.cuda()
+            self.disc_c = self.disc_c.cuda()
             self.disc_ans = self.disc_ans.cuda()
 
 class Network_Separated(object):
