@@ -4,6 +4,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from loader.corpus import BatchingDataset, BatchingPOSDataset, BatchIterator
+from models.convnets import CNNArchitect, EncoderCNN, DecoderCNN
 from models.encoder import EncoderRNN
 from models.enc_disc import EncoderDisc, EncoderDiscModeWrapper
 from models.decoder import DecoderRNN
@@ -26,6 +27,8 @@ class Network(object):
         else:
             batching_dataset = BatchingDataset(cfg, vocab)
 
+        self.cfg.max_len += 1 # NOTE
+
         data_loader = DataLoader(corpus, cfg.batch_size, shuffle=True,
                                  num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
@@ -37,10 +40,12 @@ class Network(object):
 
         # Word embedding
         self.embed = WordEmbedding(cfg, vocab)
+        # CNN architecture
+        arch_cnn = CNNArchitect(cfg)
         # Encoder
-        self.enc = EncoderDisc(cfg)
+        self.enc = EncoderCNN(cfg, arch_cnn)
         # Decoder
-        self.dec = DecoderRNN(cfg, self.embed)
+        self.dec = DecoderCNN(cfg, arch_cnn)
         # Generator
         self.gen = Generator(cfg)
         # Discriminator - code level
@@ -50,6 +55,7 @@ class Network(object):
         #self.disc_g = CodeDiscriminator(cfg)
 
         # Print network modules
+        log.info(self.embed)
         log.info(self.enc)
         log.info(self.dec)
         log.info(self.gen)
@@ -79,6 +85,7 @@ class Network(object):
         #                                betas=(cfg.beta1, 0.999))
 
         if cfg.cuda:
+            self.embed = self.embed.cuda()
             self.enc = self.enc.cuda()
             self.dec = self.dec.cuda()
             self.gen = self.gen.cuda()

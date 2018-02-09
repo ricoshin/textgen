@@ -14,7 +14,7 @@ log = logging.getLogger('main')
 dict = collections.OrderedDict
 
 
-def train_ae(cfg, net, batch, mode):
+def train_ae(cfg, net, batch):
     net.embed.train()
     net.embed.zero_grad()
     net.enc.train()
@@ -23,16 +23,9 @@ def train_ae(cfg, net, batch, mode):
     net.dec.zero_grad()
     # output.size(): batch_size x max_len x ntokens (logits)
 
-    in_embed = net.embed(batch.src)
-    code = net.enc(in_embed, noise=True, save_grad_norm=True)
-
-    if mode == 'tf':
-        out_word, _, out_tag = net.dec(code, batch.src, batch.len, mode='tf')
-    elif mode == 'fr':
-        out_word, _, out_tag = net.dec(code, batch.len, mode='fr',
-                                       save_grad_norm=True)
-    else:
-        raise Exception("Unknown decoder training mode!")
+    embed_in = net.embed(batch.src)
+    code = net.enc(embed_in, noise=False, save_grad_norm=True)
+    embed_out = net.dec(code, save_grad_norm=True)
 
 
     def mask_output_target(output, target, ntokens):
@@ -54,36 +47,24 @@ def train_ae(cfg, net, batch, mode):
         return masked_output, masked_target
 
     # compute word prediction loss and accuracy
-    cosim = compute_cosine_sim(out_word, net.embed)
-    out_word_p = F.log_softmax(cosim * cfg.embed_temp, 2)
-    msk_out, msk_tar = mask_output_target(out_word_p, batch.tar, cfg.vocab_size)
+    cosim = compute_cosine_sim(embed_out, net.embed)
+    word_prob = F.log_softmax(cosim * 100, 2)
+    import pdb; pdb.set_trace()
+    msk_out, msk_tar = mask_output_target(word_prob, batch.tar, cfg.vocab_size)
     loss_word = net.dec.criterion_nll(msk_out, msk_tar)
+
     _, max_ids = torch.max(msk_out, 1)
     acc_word = torch.mean(max_ids.eq(msk_tar).float())
 
     # compute tag prediction loss and accuracy
-    msk_out, msk_tar = mask_output_target(out_tag, batch.tar_tag, cfg.tag_size)
-    loss_tag = net.dec.criterion_ce(msk_out, msk_tar)
-    _, max_ids = torch.max(msk_out, 1)
-    acc_tag = torch.mean(max_ids.eq(msk_tar).float())
+    # msk_out, msk_tar = mask_output_target(out_tag, batch.tar_tag, cfg.tag_size)
+    # loss_tag = net.dec.criterion_ce(msk_out, msk_tar)
+    # _, max_ids = torch.max(msk_out, 1)
+    # acc_tag = torch.mean(max_ids.eq(msk_tar).float())
+    loss_word.backward()
 
-    loss_word.backward(retain_graph=True)
-    loss_tag.backward()
-    loss_total = loss_word + loss_tag
-    #loss_total.backward()
-
-    # `clip_grad_norm` to prevent exploding gradient in RNNs / LSTMs
-    torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
-    torch.nn.utils.clip_grad_norm(net.dec.parameters(), cfg.clip)
-
-    if mode == 'tf':
-        name = "Autoencoder"
-    elif mode == 'fr':
-        name = "Autoencoder_fr"
-    return ResultPackage(name, dict(Loss_word=loss_word.data,
-                                    Loss_tag=loss_tag.data,
-                                    Acc_word=acc_word.data[0],
-                                    Acc_tag=acc_tag.data[0]))
+    return ResultPackage("Autoencdoer", dict(Loss_word=loss_word.data,
+                                             Acc_word=acc_word.data[0]))
 
 
 def train_exposure(cfg, net, batch):
@@ -124,9 +105,9 @@ def train_enc(cfg, net, batch):
 
     # code reconstruction loss
     in_embed = net.embed(batch.src)
-    code = net.enc(in_embed, noise=False, save_grad_norm=False)
+    code = net.enc(in_embed, save_grad_norm=False)
     out_word, _, out_tag = net.dec(code, batch.src, batch.len, mode='tf')
-    code_recon = net.enc(out_word, noise=False, save_grad_norm=False)
+    code_recon = net.enc(out_word, save_grad_norm=False)
 
     code_detached = Variable(code.data, requires_grad=False)
     loss = net.enc.criterion_mse(code_recon, code_detached)
@@ -138,12 +119,13 @@ def eval_ae_tf(net, batch):
     net.dec.eval()
     # output.size(): batch_size x max_len x ntokens (logits)
     #output = ae(batch.src, batch.len, noise=True)
-    in_embed = net.embed(batch.src)
-    code = net.enc(in_embed, noise=True)
-    _, out_word_p, _ = net.dec(code, batch.src, batch.len, mode='tf') #NOTE
+    embed_in = net.embed(batch.src)
+    code = net.enc(embed_in)
+    embed_out = net.dec(code) #NOTE
 
-    max_value, max_indices = torch.max(out_word_p, 2)
-    target = batch.tar.view(out_word_p.size(0), -1)
+    cosim = compute_cosine_sim(embed_out, net.embed)
+    max_value, max_indices = torch.max(cosim, 2)
+    target = batch.tar.view(embed_out.size(0), -1)
     outputs = max_indices.data.cpu().numpy()
     targets = target.data.cpu().numpy()
 
@@ -156,12 +138,13 @@ def eval_ae_fr(net, batch):
     # output.size(): batch_size x max_len x ntokens (logits)
     #code = ae.encode_only(cfg, batch, train=False)
     #max_ids, outs = ae.decode_only(cfg, code, vocab, train=False)
-    in_embed = net.embed(batch.src)
-    code = net.enc(in_embed, noise=True)
-    _, out_word_p, _ = net.dec(code, batch.len, mode='fr')
+    embed_in = net.embed(batch.src)
+    code = net.enc(embed_in)
+    embed_out = net.dec(code)
 
-    max_value, max_indices = torch.max(out_word_p, 2)
-    target = batch.tar.view(out_word_p.size(0), -1)
+    cosim = compute_cosine_sim(embed_out, net.embed)
+    max_value, max_indices = torch.max(cosim, 2)
+    target = batch.tar.view(embed_out.size(0), -1)
     outputs = max_indices.data.cpu().numpy()
     targets = target.data.cpu().numpy()
 

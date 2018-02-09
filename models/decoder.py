@@ -12,12 +12,13 @@ log = logging.getLogger('main')
 
 
 class Decoder(nn.Module):
-    def __init__(self, cfg, embed):
+    def __init__(self, cfg, embed=None):
         super(Decoder, self).__init__()
         self.cfg = cfg
         self.grad_norm = None
-        self.embed = embed
-        self.vocab = embed.vocab
+        if embed is not None:
+            self.embed = embed
+            self.vocab = embed.vocab
 
     def forward(self, *input):
         raise NotImplementedError

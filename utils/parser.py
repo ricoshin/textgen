@@ -137,7 +137,7 @@ parser.add_argument('--sample', action='store_true',
                     help='sample when decoding for generation')
 parser.add_argument('--N', type=int, default=5,
                     help='N-gram order for training n-gram language model')
-parser.add_argument('--log_interval', type=int, default=50,
+parser.add_argument('--log_interval', type=int, default=200,
                     help='interval to log autoencoder training results')
 
 # Test Arguments

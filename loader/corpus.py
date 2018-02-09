@@ -172,20 +172,21 @@ class BatchingPOSDataset(BatchingDataset):
             # sent and pos length must be the same
             assert(len(sent) == len(tag))
             lengths.append(len(sent))
-        batch_max_len = max(lengths)
+        #batch_max_len = max(lengths)
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
             batch, lengths = self._length_sort(batch, lengths)
 
+        # NOTE fix later if we want to use CNN architecture
         for sent, tag in batch:
             # pad & sos/eos
-            num_pads = batch_max_len - len(sent)
+            num_pads = self.cfg.max_len - len(sent)
             pads = [self.vocab.PAD_ID] * num_pads
-            src = sent + pads
-            src_tag = tag + pads
+            src = sent + [self.vocab.EOS_ID] + pads
+            src_tag = tag + [self.vocab.EOS_ID] + pads
             tar = sent + [self.vocab.EOS_ID] + pads
-            tar_tag = tag + [self.vocab_pos.EOS_ID] + pads
+            tar_tag = tag + [self.vocab.EOS_ID] + pads
 
             source.append(src)
             target.append(tar)
