@@ -27,12 +27,14 @@ class Decoder(nn.Module):
         self.grad_norm = norm.detach().data.mean()
         return grad
 
+TAG=True
+TF_TAG=0
+FR_TAG=1
 
 class DecoderRNN(Decoder):
     def __init__(self, cfg, embed):
         super(DecoderRNN, self).__init__(cfg, embed)
-
-        input_size_dec = cfg.word_embed_size + cfg.hidden_size
+        input_size_dec = cfg.word_embed_size + cfg.hidden_size + 1
         self.decoder = nn.LSTM(input_size=input_size_dec,
                                hidden_size=cfg.hidden_size,
                                num_layers=1,
@@ -42,7 +44,7 @@ class DecoderRNN(Decoder):
         self.linear_word = nn.Linear(cfg.hidden_size, cfg.word_embed_size)
 
         if cfg.pos_tag:
-            input_size_tag = cfg.word_embed_size + cfg.hidden_size
+            input_size_tag = cfg.word_embed_size + cfg.hidden_size + 1
             self.tagger = nn.LSTM(input_size=input_size_tag,
                                   hidden_size=cfg.hidden_size,
                                   dropout=cfg.dropout,
@@ -84,6 +86,9 @@ class DecoderRNN(Decoder):
         sos_ids.fill_(vocab.SOS_ID)
         return sos_ids
 
+    def _get_tag_batch(self, size, num):
+        return to_gpu(self.cfg.cuda, Variable(torch.ones(*size, 1))) * num
+
     def _pads_after_eos(self, ids, out, finished):
         # zero ids after eos
         assert(self.vocab.PAD_ID == 0)
@@ -104,12 +109,16 @@ class DecoderRNN(Decoder):
         cos_sim = cos_sim.view(*out_word.size()[:-1], vocab_size)
         return cos_sim # [bsz, (max_len,) vocab_size]
 
-    def forward(self, hidden, ids_dec, ids_tag, lengths):
-        decoded = self._decode(hidden, ids_dec, ids_tag, lengths)
-
+    def forward(self, hidden, batch, mode):
+        if mode == 'tf': # teacher forcing
+            decoded = self._decode_tf(hidden, batch.src, batch.len)
+        elif mode == 'fr': # free running
+            decoded = self._decode_fr(hidden, batch.len)
+        else:
+            raise Exception("Unknown decoding mode!")
         return decoded
 
-    def _decode(self, hidden, ids_dec, ids_tag, lengths):
+    def _decode_tf(self, hidden, ids_dec, lengths):
         batch_size = ids_dec.size(0)
 
         # insert sos in the first column
@@ -118,13 +127,15 @@ class DecoderRNN(Decoder):
 
         # length should be increased as well
         lengths = [length + 1 for length in lengths]
+        # generate tag
+        mode_tag = self._get_tag_batch([batch_size, max(lengths)], TF_TAG)
 
         # Decoder
         init_state = self._init_hidden(batch_size)
         embed_dec = self.embed(ids_dec) # for teacher forcing
 
         all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
-        augmented_input = torch.cat([embed_dec, all_hidden], 2)
+        augmented_input = torch.cat([embed_dec, all_hidden, mode_tag], 2)
         packed_in_dec = pack_padded_sequence(input=augmented_input,
                                              lengths=lengths,
                                              batch_first=True)
@@ -135,8 +146,9 @@ class DecoderRNN(Decoder):
         words = self.linear_word(out_dec) # output layer for word prediction
         words = words.view(batch_size, max(lengths), self.cfg.word_embed_size)
         words = F.normalize(words, p=2, dim=2)
-        cos_sim = self._compute_cosine_sim(words) # [bsz, len, vocab_size]
-        words_prob = F.log_softmax(cos_sim*10, 2)
+        words_cos_sim = self._compute_cosine_sim(words)
+        words_prob = F.log_softmax(words_cos_sim * self.cfg.embed_temp, 2)
+
 
         if out_dec.requires_grad: # NOTE fix later!
             out_dec.register_hook(self._store_grad_norm)
@@ -144,7 +156,7 @@ class DecoderRNN(Decoder):
 
         # POS tagger
         #new_out_dec = Variable(words.data, requires_grad=False)
-        augmented_input = torch.cat([words, all_hidden], 2)
+        augmented_input = torch.cat([words, all_hidden, mode_tag], 2)
         packed_in_tag = pack_padded_sequence(input=augmented_input,
                                              lengths=lengths,
                                              batch_first=True)
@@ -159,7 +171,63 @@ class DecoderRNN(Decoder):
         tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 
-        return words_prob, tags
+        return words, words_prob, tags
+
+    def _decode_fr(self, hidden, lengths):
+        batch_size = hidden.size(0)
+        hidden = hidden.unsqueeze(1)
+        state_dec = state_tag = self._init_hidden(batch_size)
+
+         # generate tag
+        mode_tag = self._get_tag_batch([batch_size, 1], FR_TAG)
+
+        # <sos>
+        sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
+        embed_dec = self.embed(sos_ids_dec)
+        # sos_embedding : [batch_size, 1, embedding_size]
+
+        # unroll
+        all_words = [] # for differentiable input of discriminator
+        all_words_prob = []
+        all_tags = [] # for grad norm scaling
+
+        finished = torch.ByteTensor(batch_size, 1).zero_()
+        finished = to_gpu(self.cfg.cuda,
+                          Variable(finished, requires_grad=False))
+
+        max_len = max(lengths) + 1
+        for i in range(max_len): # for each step
+            # decoder
+            input_dec = torch.cat([embed_dec, hidden, mode_tag], 2)
+            outs_dec, state_dec = self.decoder(input_dec, state_dec)
+            words = self.linear_word(outs_dec)
+            words = F.normalize(words, p=2, dim=2)
+            words_cosim = self._compute_cosine_sim(words)
+            words_prob = F.log_softmax(words_cosim * self.cfg.embed_temp, 2)
+            _, words_id = torch.max(words_cosim, 2)
+            embed_dec = self.embed(words_id)
+            #embed_dec = words
+
+            # tagger
+            #words_detached = Variable(outs_dec.data, requires_grad=False)
+            input_tag = torch.cat([words, hidden, mode_tag], 2)
+            outs_tag, state_tag = self.tagger(input_tag, state_tag)
+            tags = self.linear_tag(outs_tag)
+
+            # append generated token ids & outs at each step
+            all_words.append(words)
+            all_words_prob.append(words_prob)
+            all_tags.append(tags)
+
+        # concatenate all the results
+        words = torch.cat(all_words, 1)
+        words_prob = torch.cat(all_words_prob, 1)
+        tags = torch.cat(all_tags, 1)
+
+        if words.requires_grad: # NOTE fix!!
+            words.register_hook(self._store_grad_norm)
+
+        return words, words_prob, tags
 
     def generate(self, hidden):
         if not self.cfg.backprop_gen:
@@ -169,6 +237,9 @@ class DecoderRNN(Decoder):
         batch_size = hidden.size(0)
         hidden = hidden.unsqueeze(1)
         state_dec = state_tag = self._init_hidden(batch_size)
+
+        # generate tag
+        mode_tag = self._get_tag_batch([batch_size, 1], FR_TAG)
 
         # <sos>
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
@@ -189,19 +260,19 @@ class DecoderRNN(Decoder):
         for i in range(max_len): # for each step
 
             # decoder
-            input_dec = torch.cat([embed_dec, hidden], 2)
+            input_dec = torch.cat([embed_dec, hidden, mode_tag], 2)
             outs_dec, state_dec = self.decoder(input_dec, state_dec)
             logit_word = self.linear_word(outs_dec)
             logit_word = F.normalize(logit_word, p=2, dim=2)
             cos_sim = self._compute_cosine_sim(logit_word)
             # for the next step
             _, ids_word = torch.max(cos_sim, 2)
-            #embed_dec = logit_word
             embed_dec = self.embed(ids_word)
+            #embed_dec = logit_word
 
             # pos tagger
             #outs_dec = Variable(outs_dec.data, requires_grad=False)
-            input_tag = torch.cat([logit_word, hidden], 2)
+            input_tag = torch.cat([logit_word, hidden, mode_tag], 2)
             outs_tag, state_tag = self.tagger(input_tag, state_tag)
             logit_tag = self.linear_tag(outs_tag)
             _, ids_tag = torch.max(logit_tag, 2)

@@ -11,11 +11,9 @@ log = logging.getLogger('main')
 
 
 class Encoder(nn.Module):
-    def __init__(self, cfg, embed):
+    def __init__(self, cfg):
         super(Encoder, self).__init__()
         self.cfg = cfg
-        self.embed = embed
-        self.vocab = embed.vocab
         self.noise_radius = cfg.noise_radius
         self.grad_norm = None
 
@@ -42,7 +40,7 @@ class Encoder(nn.Module):
 
 class EncoderRNN(Encoder):
     def __init__(self, cfg, embed):
-        super(EncoderRNN, self).__init__(cfg, embed)
+        super(EncoderRNN, self).__init__(cfg)
 
         # RNN Encoder and Decoder
         self.encoder = nn.LSTM(input_size=cfg.word_embed_size,
@@ -61,8 +59,8 @@ class EncoderRNN(Encoder):
         for p in self.encoder.parameters():
             p.data.uniform_(-initrange, initrange)
 
-    def forward(self, indices, lengths, noise, save_grad_norm=False):
-        code = self._encode(indices, lengths, noise)
+    def forward(self, batch, noise, save_grad_norm=False):
+        code = self._encode(batch.src, batch.len, noise)
 
         if save_grad_norm and code.requires_grad:
             code.register_hook(self._store_grad_norm)
