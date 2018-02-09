@@ -10,6 +10,7 @@ from train.network import Network
 from utils.parser import parser
 from utils.utils import Config, set_logger, prepare_paths
 
+import pdb
 log = logging.getLogger('main')
 
 if __name__ == '__main__':

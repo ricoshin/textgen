@@ -17,6 +17,7 @@ from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
+import pdb
 log = logging.getLogger('main')
 dict = collections.OrderedDict
 
@@ -39,11 +40,12 @@ def train(net):
                 batch = net.data_ae.next()
                 """
                 # print sents
-                for i in range(5):
+                for i in range(10):
                     print('q: ', ids_to_sent(net.q_vocab, 
                                 batch.q[i].data.cpu().numpy()))                    
                     print('a: ', ids_to_sent(net.a_vocab, 
                                 batch.a[i].data.cpu().numpy()))
+                pdb.set_trace()
                 """
                 rp_ae = train_ae(cfg, net, batch)
                 net.optim_ans_enc.step()
@@ -77,7 +79,7 @@ def train(net):
 
             # make encoded answer embedding
             net.ans_enc.eval()
-            ans_code = net.ans_enc(batch.a, batch.a_len, noise=True)
+            ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False)
 
             # Autoencoder eval
             tars, outs = eval_ae_tf(net, batch, ans_code)

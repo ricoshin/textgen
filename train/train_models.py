@@ -25,7 +25,7 @@ def train_ae(cfg, net, batch):
     
     # output.size(): batch_size x max_len x ntokens (logits)
     # output = answer encoder(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
-    ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, save_grad_norm=True)
+    ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False, save_grad_norm=True)
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.q, batch.q_len, noise=True, save_grad_norm=True)
     output = net.dec(torch.cat((code, ans_code), 1), batch.q, batch.q_len) # torch.cat dim=1
@@ -109,7 +109,7 @@ def train_disc_ans(cfg, net, batch):
     # make answer encoding
     net.ans_enc.train() # train answer encoder
     net.ans_enc.zero_grad()
-    ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, save_grad_norm=True)
+    ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False, save_grad_norm=True)
 
     # train answer discriminator
     net.disc_ans.train()

@@ -43,26 +43,27 @@ class Encoder(nn.Module):
         # use this when compute disc_c's gradient (register_hook)
         return grad
 
-    def forward(self, indices, lengths, noise, save_grad_norm=False):
+    def forward(self, indices, lengths, noise, ispacked=True, save_grad_norm=False):
         batch_size, maxlen = indices.size()
 
-        hidden = self._encode(indices, lengths, noise)
+        hidden = self._encode(indices, lengths, noise, ispacked)
 
         if save_grad_norm and hidden.requires_grad:
             hidden.register_hook(self._store_grad_norm)
 
         return hidden
 
-    def _encode(self, indices, lengths, noise):
+    def _encode(self, indices, lengths, noise, ispacked=True):
         # indices.size() : batch_size x max(lengths) [Variable]
         # len(lengths) : batch_size [List]
         embeddings = self.embed(indices)
-        # embeddings.data.size() : batch_size x max(lenghts) x embed_dim [Variable]
-        packed_embeddings = pack_padded_sequence(input=embeddings,
+        if ispacked == True:
+            # embeddings.data.size() : batch_size x max(lenghts) x embed_dim [Variable]
+            embeddings = pack_padded_sequence(input=embeddings,
                                                  lengths=lengths,
                                                  batch_first=True)
         # Encode
-        packed_output, state = self.encoder(packed_embeddings)
+        packed_output, state = self.encoder(embeddings)
         hidden, cell = state # last states (tuple the length of 2)
 
         hidden = hidden[-1]  # get hidden state of last layer of encoder

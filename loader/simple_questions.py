@@ -14,6 +14,7 @@ from torch.utils.data import Dataset
 from loader.multi_proc import LargeFileMultiProcessor, LineCounter
 from utils.utils import to_gpu
 
+from random import shuffle
 import pdb
 
 log = logging.getLogger('main')
@@ -234,9 +235,9 @@ class BatchingDataset(object):
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(question) > 1:
-            question, q_lengths = self._length_sort(question, q_lengths)
-            answer, a_lengths = self._length_sort(answer, a_lengths)
-
+            question, q_lengths, answer, a_lengths = self._length_sort(
+                                question, q_lengths, answer, a_lengths)
+        
         def sort_and_pad(lists, max_len):
             out = []
             out_tgt = []
@@ -263,11 +264,11 @@ class BatchingDataset(object):
         return Batch(question, question_target, answer, answer_target,
                 q_lengths, a_lengths)
 
-    def _length_sort(self, items, lengths, descending=True):
-        items = list(zip(items, lengths))
+    def _length_sort(self, items, lengths, sub_items, sub_lengths, descending=True):
+        items = list(zip(items, lengths, sub_items, sub_lengths))
         items.sort(key=lambda x: x[1], reverse=True)
-        items, lengths = zip(*items)
-        return list(items), list(lengths)
+        items, lengths, sub_items, sub_lengths = zip(*items)
+        return list(items), list(lengths), list(sub_items), list(sub_lengths)
 
 
 class BatchIterator(object):
