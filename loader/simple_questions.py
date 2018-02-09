@@ -26,7 +26,7 @@ class SimpleQuestionsMultiProcessor(LargeFileMultiProcessor):
         self.min_len = min_len
         self.max_len = max_len
         self.tokenizer = tokenizer
-        super(BookCorpusMultiProcessor, self).__init__(file_path, num_process)
+        super(SimpleQuestionsMultiProcessor, self).__init__(file_path, num_process)
 
     @classmethod
     def from_multiple_files(cls, file_paths, num_process=None,
@@ -61,7 +61,7 @@ class SimpleQuestionsMultiProcessor(LargeFileMultiProcessor):
         return q_sents, a_sents, q_counter, a_counter
 
     def process(self):
-        results = super(BookCorpusMultiProcessor, self).process()
+        results = super(SimpleQuestionsMultiProcessor, self).process()
         log.info('\n' * (self.num_process - 1)) # to prevent dirty print
 
         q_sents = []
@@ -217,7 +217,6 @@ class BatchingDataset(object):
         question_target = []
         answer = []
         answer_target = []
-        pdb.set_trace()
         for sent in sample_list:
             split_pos = sent.index(self.split_id)
             question.append(sent[:split_pos])
@@ -231,7 +230,7 @@ class BatchingDataset(object):
         q_lengths = [(len(sent) + 1) for sent in question] # +1: sos/eos
         a_lengths = [(len(sent) + 1) for sent in answer]
         q_max_len = max(q_lengths)
-        a_max_len - max(a_lengths)
+        a_max_len = max(a_lengths)
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(question) > 1:

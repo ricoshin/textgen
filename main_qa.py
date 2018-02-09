@@ -31,7 +31,7 @@ if __name__ == '__main__':
     q_vocab, a_vocab = preprocess_simpleqa(cfg)
 
     # Load dataset
-    train_data = BookCorpusDataset(cfg.train_data_filepath)
+    train_data = SimpleQuestionsDataset(cfg.train_data_filepath)
     # Build network
     net = Network(cfg, train_data, q_vocab, a_vocab)
 

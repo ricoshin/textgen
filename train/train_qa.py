@@ -12,7 +12,7 @@ from torch.autograd import Variable
 from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr,
                                 train_disc_ans, eval_disc_ans)
 from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
-                                print_ae_fr_sents, print_gen_sents,
+                                print_ae_fr_sents, print_gen_sents, ids_to_sent,
                                 ids_to_sent_for_eval, halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
@@ -37,6 +37,14 @@ def train(net):
                 if sv.epoch_stop():
                     break  # end of epoch
                 batch = net.data_ae.next()
+                """
+                # print sents
+                for i in range(5):
+                    print('q: ', ids_to_sent(net.q_vocab, 
+                                batch.q[i].data.cpu().numpy()))                    
+                    print('a: ', ids_to_sent(net.a_vocab, 
+                                batch.a[i].data.cpu().numpy()))
+                """
                 rp_ae = train_ae(cfg, net, batch)
                 net.optim_ans_enc.step()
                 net.optim_enc.step()
@@ -73,7 +81,7 @@ def train(net):
 
             # Autoencoder eval
             tars, outs = eval_ae_tf(net, batch, ans_code)
-            print_ae_tf_sents(net.q_vocab, tars, outs, batch.len, cfg.log_nsample)
+            print_ae_tf_sents(net.q_vocab, tars, outs, batch.q_len, cfg.log_nsample)
             tars, outs = eval_ae_fr(net, batch, ans_code)
             print_ae_fr_sents(net.q_vocab, tars, outs, cfg.log_nsample)
 
@@ -85,10 +93,10 @@ def train(net):
             logit, loss, targets, outputs = eval_disc_ans(net, batch, ans_code)
 
             # dump results
-            log.info('loss: {}'.format(loss))
+            log.info('disc_ans loss: {}'.format(loss.data))
             #log.info('targets: {}'.format(targets))
             #log.info('outputs: {}'.format(outputs))
-            writer.add_scalar('Disc_Ans/1_loss', loss, sv.global_step)
+            writer.add_scalar('Disc_Ans/1_loss', loss.data, sv.global_step)
             sv.save()
 
         # end of epoch ----------------------------

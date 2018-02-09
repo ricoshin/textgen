@@ -2,7 +2,7 @@ import numpy as np
 import logging
 import os
 
-from loader.simple_questions import BookCorpusMultiProcessor
+from loader.simple_questions import SimpleQuestionsMultiProcessor
 from loader.vocab import Vocab, GloveMultiProcessor
 from utils.utils import StopWatch
 
@@ -19,13 +19,13 @@ def preprocess_data_vocab(cfg):
 
         log.info('Start preprocessing data and building vocabulary!')
         if isinstance(cfg.train_q_filepath, (list, tuple)):
-            book_procs = BookCorpusMultiProcessor.from_multiple_files(
+            book_procs = SimpleQuestionsMultiProcessor.from_multiple_files(
                     file_paths=cfg.train_q_filepath,
                     min_len=cfg.min_len,
                     max_len=cfg.max_len)
-            sents, counter = BookCorpusMultiProcessor.multi_process(book_procs)
+            sents, counter = SimpleQuestionsMultiProcessor.multi_process(book_procs)
         else:
-            book_procs = BookCorpusMultiProcessor(file_path=cfg.train_q_filepath,
+            book_procs = SimpleQuestionsMultiProcessor(file_path=cfg.train_q_filepath,
                                                   min_len=cfg.min_len,
                                                   max_len=cfg.max_len)
             sents, counter = book_procs.process()
@@ -64,11 +64,11 @@ def preprocess_simpleqa(cfg):
         log.info('Start preprocessing data and building vocabulary!')
         def get_idx_from_sents(filepath):
             if isinstance(filepath, (list, tuple)):
-                procs = BookCorpusMultiProcessor.from_multiple_files(
+                procs = SimpleQuestionsMultiProcessor.from_multiple_files(
                         file_paths=filepath, min_len=cfg.min_len, max_len=cfg.max_len)
-                q_sents, a_sents, q_counter, a_counter = BookCorpusMultiProcessor.multi_process(procs)
+                q_sents, a_sents, q_counter, a_counter = SimpleQuestionsMultiProcessor.multi_process(procs)
             else:
-                procs = BookCorpusMultiProcessor(file_path=filepath,
+                procs = SimpleQuestionsMultiProcessor(file_path=filepath,
                                                       min_len=cfg.min_len,
                                                       max_len=cfg.max_len)
                 q_sents, a_sents, q_counter, a_counter = procs.process()
@@ -91,9 +91,8 @@ def preprocess_simpleqa(cfg):
         sents = []
         # concatenate q_sent and a_sents
         for q, a in zip(q_sents, a_sents):
-            pdb.set_trace()
-            temp = q+'<spl>'+a
-            sents.append()
+            temp = q+[q_vocab.SPLIT_ID]+a
+            sents.append(temp)
 
         with StopWatch('Saving text'):
             np.savetxt(cfg.train_data_filepath, sents, fmt="%s")
@@ -119,11 +118,11 @@ def preprocess_simpleqa_separated(cfg):
         log.info('Start preprocessing data and building vocabulary!')
         def get_idx_from_sents(filepath):
             if isinstance(filepath, (list, tuple)):
-                procs = BookCorpusMultiProcessor.from_multiple_files(
+                procs = SimpleQuestionsMultiProcessor.from_multiple_files(
                         file_paths=filepath, min_len=cfg.min_len, max_len=cfg.max_len)
-                q_sents, a_sents, q_counter, a_counter = BookCorpusMultiProcessor.multi_process(procs)
+                q_sents, a_sents, q_counter, a_counter = SimpleQuestionsMultiProcessor.multi_process(procs)
             else:
-                procs = BookCorpusMultiProcessor(file_path=filepath,
+                procs = SimpleQuestionsMultiProcessor(file_path=filepath,
                                                       min_len=cfg.min_len,
                                                       max_len=cfg.max_len)
                 q_sents, a_sents, q_counter, a_counter = procs.process()

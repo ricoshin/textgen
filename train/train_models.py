@@ -6,8 +6,10 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from train.train_helper import ResultPackage, append_pads
+from train.train_helper import ResultPackage, append_pads, ids_to_sent
 from utils.utils import to_gpu
+
+import pdb
 
 dict = collections.OrderedDict
 
@@ -20,8 +22,8 @@ def train_ae(cfg, net, batch):
     net.enc.zero_grad()
     net.dec.train()
     net.dec.zero_grad()
+    
     # output.size(): batch_size x max_len x ntokens (logits)
-
     # output = answer encoder(ans_batch.src, ans_batch.len, noise=True, save_grad_norm=True)
     ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, save_grad_norm=True)
     #output = ae(batch.src, batch.len, noise=True)
@@ -118,8 +120,10 @@ def train_disc_ans(cfg, net, batch):
     # logit : (N=question sent len, C=answer embed size)
     # ans_code : C=answer embed size
     ans_code = Variable(ans_code.data, requires_grad = False)
-    KLD_loss = torch.nn.modules.loss.KLDivLoss()
-    loss = KLD_loss(logit, ans_code) # target : label, text : feature
+    # y : label
+    y = [1 for _ in range(logit.data.shape[0])]
+    y = Variable(torch.cuda.FloatTensor(y), requires_grad = False)
+    loss = F.cosine_embedding_loss(logit, ans_code, y)
     loss.backward()
     torch.nn.utils.clip_grad_norm(net.disc_ans.parameters(), cfg.clip)
 
@@ -136,8 +140,9 @@ def eval_disc_ans(net, batch, ans_code):
 
     # calculate kl divergence loss
     ans_code = Variable(ans_code.data, requires_grad = False)
-    KLD_loss = torch.nn.modules.loss.KLDivLoss()
-    loss = KLD_loss(logit, ans_code) # target : label, text : feature
+    y = [1 for _ in range(logit.data.shape[0])]
+    y = Variable(torch.cuda.FloatTensor(y), requires_grad = False)
+    loss = F.cosine_embedding_loss(logit, ans_code, y)
     # print discriminator output
     code = net.enc(batch.q, batch.q_len, noise=True)
     output = net.dec(torch.cat((code, logit), 1), batch.q, batch.q_len)

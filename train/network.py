@@ -23,11 +23,11 @@ class Network(object):
         #train_data_loader = DataLoader(train_data, cfg.batch_size, shuffle=True,
         #                         num_workers=0, collate_fn=batching_dataset,
         #                         drop_last=True, pin_memory=True)
-        train_data_loader = DataLoader(train_data, cfg.batch_size, shuffle=True,
-                                 num_workers=0, collate_fn=q_batching_dataset,
+        train_data_loader = DataLoader(train_data, cfg.batch_size, shuffle=False,
+                                 num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
-        eval_data_loader = DataLoader(train_data, cfg.eval_size, shuffle=True,
-                                 num_workers=0, collate_fn=a_batching_dataset,
+        eval_data_loader = DataLoader(train_data, cfg.eval_size, shuffle=False,
+                                 num_workers=0, collate_fn=batching_dataset,
                                  drop_last=True, pin_memory=True)
         #dataloader_ae_test = DataLoader(book_corpus, cfg.batch_size,
         #                                shuffle=False, num_workers=4,
