@@ -64,21 +64,26 @@ def train(net):
                     # train CodeDiscriminator
                     code_real, code_fake = generate_codes(cfg, net, batch)
                     rp_dc = train_disc_c(cfg, net, code_real, code_fake)
-                    #err_dc_total, err_dc_real, err_dc_fake = err_dc
+                    net.optim_enc.step()
+                    net.optim_disc_c.step()
 
+                    #err_dc_total, err_dc_real, err_dc_fake = err_dc
+                    rp_ds = train_disc_s(cfg, net, batch, code_real, code_fake)
+                    net.optim_disc_s.step()
                     # train SampleDiscriminator
                     # if sv.epoch_step >= cfg.disc_s_hold:
                     #     rp_ds_loss, rp_ds_pred, ids, attns = \
                     #         train_disc_s(cfg, net, batch, code_real, code_fake)
                     #     net.optim_disc_s.step()
 
-                    net.optim_enc.step()
-                    net.optim_disc_c.step()
 
                 # train generator(with disc_c) / decoder(with disc_s)
                 for i in range(cfg.niters_gan_g): # default: 1
                     rp_gen, code_fake = train_gen(cfg, net)
                     net.optim_gen.step()
+
+                    rp_dec = train_dec(cfg, net, code_fake)
+                    net.optim_dec.step()
                 #     if sv.epoch_step >= cfg.disc_s_hold:
                 #         rp_dec = train_dec(cfg, net, code_fake, net.vocab)
                 #         net.optim_dec.step()
@@ -94,23 +99,27 @@ def train(net):
             # Autoencoder
             batch = net.data_eval.next()
             tars, outs = eval_ae_tf(net, batch)
+            rp_ae_tf.drop_log_and_events(sv, writer)
             print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
+
             tars, outs = eval_ae_fr(net, batch)
+            rp_ae_fr.drop_log_and_events(sv, writer)
             print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
 
             # dump results
 
             #print_ae_sents(net.vocab, tar)
-            rp_ae_tf.drop_log_and_events(sv, writer)
-            rp_ae_fr.drop_log_and_events(sv, writer)
             # Generator + Discriminator_c
+            rp_gen.drop_log_and_events(sv, writer)
             ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
 
             # dump results
             rp_dc.update(dict(G_Loss=rp_gen.loss)) # NOTE : mismatch
-            rp_dc.update(dict(G_Pred=rp_gen.pred))
             rp_dc.drop_log_and_events(sv, writer, False)
             print_gen_sents(net.vocab, ids_fake_eval, cfg.log_nsample)
+
+            rp_ds.update(dict(G_Dec=rp_dec.loss))
+            rp_ds.drop_log_and_events(sv, writer)
 
             # # Discriminator_s
             # if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:

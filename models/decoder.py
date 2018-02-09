@@ -28,8 +28,8 @@ class Decoder(nn.Module):
         return grad
 
 TAG=True
-TF_TAG=0
-FR_TAG=1
+TAG_DEC=0
+TAG_GEN=0
 
 class DecoderRNN(Decoder):
     def __init__(self, cfg, embed):
@@ -109,11 +109,15 @@ class DecoderRNN(Decoder):
         cos_sim = cos_sim.view(*out_word.size()[:-1], vocab_size)
         return cos_sim # [bsz, (max_len,) vocab_size]
 
-    def forward(self, hidden, batch, mode):
+    def forward(self, *inputs, mode, save_grad_norm=False):
         if mode == 'tf': # teacher forcing
-            decoded = self._decode_tf(hidden, batch.src, batch.len)
+            decoded = self._decode_tf(*inputs)
         elif mode == 'fr': # free running
-            decoded = self._decode_fr(hidden, batch.len)
+            decoded = self._decode_fr(*inputs, tag=TAG_DEC,
+                                      save_grad_norm=save_grad_norm)
+        elif mode == 'gen': # generator
+            decoded = self._decode_fr(*inputs, tag=TAG_GEN,
+                                      save_grad_norm=save_grad_norm)
         else:
             raise Exception("Unknown decoding mode!")
         return decoded
@@ -128,7 +132,7 @@ class DecoderRNN(Decoder):
         # length should be increased as well
         lengths = [length + 1 for length in lengths]
         # generate tag
-        mode_tag = self._get_tag_batch([batch_size, max(lengths)], TF_TAG)
+        mode_tag = self._get_tag_batch([batch_size, max(lengths)], TAG_DEC)
 
         # Decoder
         init_state = self._init_hidden(batch_size)
@@ -150,8 +154,8 @@ class DecoderRNN(Decoder):
         words_prob = F.log_softmax(words_cos_sim * self.cfg.embed_temp, 2)
 
 
-        if out_dec.requires_grad: # NOTE fix later!
-            out_dec.register_hook(self._store_grad_norm)
+        #if words_prob.requires_grad: # NOTE fix later!
+        #    word_prob.register_hook(self._store_grad_norm)
             #log.debug("Decoder gradient norm has been saved.")
 
         # POS tagger
@@ -173,13 +177,18 @@ class DecoderRNN(Decoder):
 
         return words, words_prob, tags
 
-    def _decode_fr(self, hidden, lengths):
+    def _decode_fr(self, hidden, lengths=None, tag=None, save_grad_norm=False):
+        if lengths is None:
+            max_len = self.cfg.max_len + 1
+        else:
+            max_len = max(lengths) + 1
+
         batch_size = hidden.size(0)
         hidden = hidden.unsqueeze(1)
         state_dec = state_tag = self._init_hidden(batch_size)
 
          # generate tag
-        mode_tag = self._get_tag_batch([batch_size, 1], FR_TAG)
+        mode_tag = self._get_tag_batch([batch_size, 1], tag)
 
         # <sos>
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
@@ -195,7 +204,6 @@ class DecoderRNN(Decoder):
         finished = to_gpu(self.cfg.cuda,
                           Variable(finished, requires_grad=False))
 
-        max_len = max(lengths) + 1
         for i in range(max_len): # for each step
             # decoder
             input_dec = torch.cat([embed_dec, hidden, mode_tag], 2)
@@ -224,7 +232,7 @@ class DecoderRNN(Decoder):
         words_prob = torch.cat(all_words_prob, 1)
         tags = torch.cat(all_tags, 1)
 
-        if words.requires_grad: # NOTE fix!!
+        if words.requires_grad and save_grad_norm: # NOTE fix!!
             words.register_hook(self._store_grad_norm)
 
         return words, words_prob, tags
@@ -239,7 +247,7 @@ class DecoderRNN(Decoder):
         state_dec = state_tag = self._init_hidden(batch_size)
 
         # generate tag
-        mode_tag = self._get_tag_batch([batch_size, 1], FR_TAG)
+        mode_tag = self._get_tag_batch([batch_size, 1], TAG_GEN)
 
         # <sos>
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)

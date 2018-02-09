@@ -89,3 +89,7 @@ class EncoderRNN(Encoder):
             code = self._add_noise(code)
 
         return code # batch_size x hidden_size
+
+
+class EncoderCNN(Encoder):
+    def __init__(self, cfg):
