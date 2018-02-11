@@ -6,6 +6,8 @@ from torch.utils.data import DataLoader
 from loader.simple_questions import BatchingDataset, BatchIterator
 from models.encoder import Encoder
 from models.decoder import Decoder
+from models.disc_code import CodeDiscriminator
+from models.generator import Generator
 from models.disc_answer import AnswerDiscriminator
 log = logging.getLogger('main')
 

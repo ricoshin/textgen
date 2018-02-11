@@ -105,11 +105,11 @@ def eval_ae_fr(net, batch, ans_code):
 
     return targets, max_ids
 
-def eval_gen_dec(cfg, net, fixed_noise):
+def eval_gen_dec(cfg, net, fixed_noise, ans_code):
     net.gen.eval()
     net.dec.eval()
     code_fake = net.gen(fixed_noise)
-    ids_fake, _ = net.dec.generate(code_fake)
+    ids_fake, _ = net.dec.generate(torch.cat((code_fake, ans_code), 1))
     return ids_fake
 
 
@@ -189,7 +189,7 @@ def train_disc_c(cfg, net, code_real, code_fake, batch):
 
     # negative samples ----------------------------
     # loss / backprop
-    err_d_fake = net.disc_c(torch.cat((code_fake.detach(), ans_code), 1))
+    err_d_fake = net.disc_c(torch.cat((code_fake.detach(), ans_code.detach()), 1))
     err_d_fake.backward(one * -1)
 
     # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs

@@ -21,7 +21,7 @@ class CodeDiscriminator(nn.Module):
 
         # nhidden(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- 1(out)
         self.cfg = cfg
-        ninput = cfg.hidden_size # 300(nhidden)
+        ninput = cfg.hidden_size + cfg.hidden_size # 300(nhidden)
         noutput = 1
 
         activation = nn.LeakyReLU(0.2)

@@ -10,7 +10,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, eval_gen_dec,
-                                generate_codes, train_disc_c,
+                                train_gen, generate_codes, train_disc_c,
                                 train_disc_ans, eval_disc_ans)
 from train.train_helper import (load_test_data, append_pads, print_ae_tf_sents,
                                 print_ae_fr_sents, print_gen_sents, ids_to_sent,
@@ -27,6 +27,7 @@ def train(net):
     log.info("Training start!")
     cfg = net.cfg # for brevity
     set_random_seed(cfg)
+    fixed_noise = net.gen.make_noise(cfg.eval_size) # for generator
     writer = SummaryWriter(cfg.log_dir)
     sv = Supervisor(net)
     test_q_sents, test_a_sents = load_test_data(cfg)
@@ -64,7 +65,7 @@ def train(net):
 
                     # train CodeDiscriminator
                     code_real, code_fake = generate_codes(cfg, net, batch)
-                    rp_dc = train_disc_c(cfg, net, code_real, code_fake)
+                    rp_dc = train_disc_c(cfg, net, code_real, code_fake, batch)
                     #err_dc_total, err_dc_real, err_dc_fake = err_dc
 
                     # train answer discriminator
@@ -75,7 +76,7 @@ def train(net):
 
                 # train generator(with disc_c)
                 for i in range(cfg.niters_gan_g): # default: 1
-                    rp_gen, code_fake = train_gen(cfg, net)
+                    rp_gen, code_fake = train_gen(cfg, net, batch)
                     net.optim_gen.step()
 
             if not sv.batch_step % cfg.log_interval == 0:
@@ -104,16 +105,14 @@ def train(net):
             #print_ae_sents(net.vocab, tar)
 
             # Generator + Discriminator_c
-            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
+            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise, ans_code)
 
             # dump results
             rp_dc.update(dict(G=rp_gen.loss)) # NOTE : mismatch
             rp_dc.drop_log_and_events(sv, writer, False)
-            print_gen_sents(net.vocab, ids_fake_eval, cfg.log_nsample)
+            print_gen_sents(net.q_vocab, ids_fake_eval, cfg.log_nsample)
 
-            fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
-            rp_scores = evaluate_sents(test_sents, fake_sents)
-            rp_scores.drop_log_and_events(sv, writer, False)
+            fake_sents = ids_to_sent_for_eval(net.q_vocab, ids_fake_eval)
 
             # Answer Discriminator
             logit, loss, targets, outputs = eval_disc_ans(net, batch, ans_code)
