@@ -18,7 +18,7 @@ class CNNArchitect(object):
     def __init__(self, cfg):
         # when "0" strides or filters, they will be automatically computed
         # NOTE : add to parser.py later!
-        s = "2-2-0"         # strides
+        s = "1-2-0"         # strides
         f = "5-5-0"         # filters
         c = "300-600-500"   # channels
 

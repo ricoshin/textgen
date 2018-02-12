@@ -69,6 +69,7 @@ class Network(object):
         #params_disc_d = filter(lambda p: p.requires_grad, self.disc_d.parameters())
         #params_disc_g = filter(lambda p: p.requires_grad, self.disc_g.parameters())
 
+        self.optim_embed = optim.SGD(self.embed.parameters(), lr=cfg.lr_ae) # default: 1
         self.optim_enc = optim.SGD(params_enc, lr=cfg.lr_ae) # default: 1
         self.optim_dec = optim.SGD(params_dec, lr=cfg.lr_ae) # default: 1
         self.optim_gen = optim.Adam(self.gen.parameters(),

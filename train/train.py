@@ -41,9 +41,9 @@ def train(net):
                     break  # end of epoch
                 batch = net.data_ae.next()
                 rp_ae = train_ae(cfg, net, batch)
+                net.optim_embed.step()
                 net.optim_enc.step()
                 net.optim_dec.step()
-
 
                 #train_exposure(cfg, net, batch)
                 # train_enc(cfg, net, batch)

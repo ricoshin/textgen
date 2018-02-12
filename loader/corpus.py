@@ -181,7 +181,7 @@ class BatchingPOSDataset(BatchingDataset):
         # NOTE fix later if we want to use CNN architecture
         for sent, tag in batch:
             # pad & sos/eos
-            num_pads = self.cfg.max_len - len(sent)
+            num_pads = self.cfg.max_len - len(sent) - 1
             pads = [self.vocab.PAD_ID] * num_pads
             src = sent + [self.vocab.EOS_ID] + pads
             src_tag = tag + [self.vocab.EOS_ID] + pads

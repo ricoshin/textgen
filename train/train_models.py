@@ -48,8 +48,7 @@ def train_ae(cfg, net, batch):
 
     # compute word prediction loss and accuracy
     cosim = compute_cosine_sim(embed_out, net.embed)
-    word_prob = F.log_softmax(cosim * 100, 2)
-    import pdb; pdb.set_trace()
+    word_prob = F.log_softmax(cosim, 2)
     msk_out, msk_tar = mask_output_target(word_prob, batch.tar, cfg.vocab_size)
     loss_word = net.dec.criterion_nll(msk_out, msk_tar)
 
