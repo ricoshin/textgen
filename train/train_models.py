@@ -62,7 +62,7 @@ def train_ae(cfg, net, batch):
     # acc_tag = torch.mean(max_ids.eq(msk_tar).float())
     loss_word.backward()
 
-    return ResultPackage("Autoencdoer", dict(Loss_word=loss_word.data,
+    return ResultPackage("Autoencoder", dict(Loss_word=loss_word.data,
                                              Acc_word=acc_word.data[0]))
 
 
@@ -154,8 +154,9 @@ def eval_gen_dec(cfg, net, fixed_noise):
     net.gen.eval()
     net.dec.eval()
     code_fake = net.gen(fixed_noise)
-    _, out_word_p, _ = net.dec(code_fake,  mode='gen')
-    _, max_indices = torch.max(out_word_p, 2)
+    embed_out = net.dec(code_fake)
+    cosim = compute_cosine_sim(embed_out, net.embed)
+    _, max_indices = torch.max(cosim, 2)
     max_indices = max_indices.data.cpu().numpy()
 
     return max_indices
