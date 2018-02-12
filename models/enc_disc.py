@@ -21,8 +21,8 @@ class EncoderDiscModeWrapper(object):
         self.enc_disc = enc_disc
         self.criterion_bce = self.enc_disc.criterion_bce
 
-    def __call__(self, in_embed):
-        return self.enc_disc(in_embed, lengths=None, noise=False,
+    def __call__(self, indices):
+        return self.enc_disc(indices, lengths=None, noise=False,
                              save_grad_norm=False, disc_mode=True)
 
     def __str__(self):
@@ -65,8 +65,10 @@ class EncoderDiscArchitect(object):
         self.s = [int(x) for x in s.split('-') if x is not '0']
         self.f = [int(x) for x in f.split('-') if x is not '0']
         self.c = [int(x) for x in c.split('-')]
-
+        self.attn = [int(x) for x in attn.split('-')]
         self.n_conv = len(self.c)
+
+        assert(len(self.attn) == (self.n_conv -1)) # last attn does not exist
         assert(len(self.s) == len(self.f)) # both must have the same len
 
         self.c = [self._get_in_c_size(cfg)] + self.c # input c
@@ -80,23 +82,15 @@ class EncoderDiscArchitect(object):
             self.s += [1]
             self.w += [1]
 
+        self.n_mat = self.c[-1] # for dimension matching
+        self.n_fc = 2
+        self.fc = [self.n_mat] * (self.n_fc) + [1]
+
         self._log_debug([self.n_conv], "n_conv")
         self._log_debug(self.f, "filters")
         self._log_debug(self.s, "strides")
         self._log_debug(self.w, "widths")
         self._log_debug(self.c, "channels")
-
-        if not cfg.with_attn:
-            return
-
-        self.attn = [int(x) for x in attn.split('-')]
-        assert(len(self.attn) == (self.n_conv -1)) # last attn does not exist
-
-        self.n_mat = self.c[-1] # for dimension matching
-        self.n_fc = 2
-        self.fc = [self.n_mat] * (self.n_fc) + [1]
-
-
         self._log_debug([self.n_mat], "matching-dim")
         self._log_debug(self.fc, "fully-connected")
         self._log_debug(self.attn, "attentions")
@@ -122,8 +116,8 @@ class EncoderDiscArchitect(object):
 
 
 class EncoderDisc(Encoder):
-    def __init__(self, cfg):
-        super(EncoderDisc, self).__init__(cfg)
+    def __init__(self, cfg, embed):
+        super(EncoderDisc, self).__init__(cfg, embed)
         # Sentence should be represented as a matrix : [max_len x step_size]
         # Step represetation can be :
         #   - hidden states which each word is generated from
@@ -147,8 +141,6 @@ class EncoderDisc(Encoder):
         # last fc
         self.fc_enc = MultiLinear4D(arch.c[-1], cfg.hidden_size, dim=1,
                                     n_layers=1)
-
-        self.criterion_mse = nn.MSELoss()
 
         if not cfg.with_attn:
             return
@@ -183,15 +175,16 @@ class EncoderDisc(Encoder):
         self.criterion_bce = nn.BCELoss()
 
 
-    def forward(self, in_embed, noise, save_grad_norm=False, disc_mode=False):
+    def forward(self, indices, lengths, noise, save_grad_norm=False,
+                disc_mode=False):
         # NOTE : lengths can be used for pad masking
-        if in_embed.size(1) < self.cfg.max_len:
-            in_embed = self._append_zero_embeds(in_embed)
-        elif in_embed.size(1) > self.cfg.max_len:
-            in_embed = in_embed[:, :self.cfg.max_len, :]
+        if indices.size(1) < self.cfg.max_len:
+            indices = self._append_pads(indices)
+        elif indices.size(1) > self.cfg.max_len:
+            indices = indices[:, :self.cfg.max_len, :]
 
-        # [bsz, word_embed_size, 1, max_len]
-        x = x_in = in_embed.permute(0, 2, 1).unsqueeze(2)
+        x = self._adaptive_embedding(indices) # [bsz, max_len, word_embed_size]
+        x = x_in = x.permute(0, 2, 1).unsqueeze(2) # [bsz, word_embed_size, 1, max_len]
 
         # generate mask for wordwise attention
         if disc_mode:
@@ -265,15 +258,26 @@ class EncoderDisc(Encoder):
         # layer_attn : [n_layers, bsz]
         return x, [w_attn, l_attn]
 
-    def _append_zero_embeds(self, tensor):
-        bsz, lengths, embed_size = tensor.size()
-        pad_len = (self.cfg.max_len) - lengths
+    def _append_pads(self, tensor):
+        batch_size = tensor.size(0)
+        pad_len = (self.cfg.max_len) - tensor.size(1)
         if pad_len > 0:
-            pads = torch.zeros([bsz, pad_len, embed_size])
-            pads = Variable(pads, requires_grad=False).cuda()
+            pads = torch.ones([batch_size, pad_len]) * self.vocab.PAD_ID
+            pads = Variable(pads, requires_grad=False).long().cuda()
             return torch.cat((tensor, pads), dim=1)
         else:
             return tensor
+
+    def _adaptive_embedding(self, indices):
+        if self.cfg.disc_s_in == 'embed':
+            if len(indices.size()) == 2:
+                # real case (indices) : [batch_size, max_len]
+                return self.embed(indices, mode='hard')
+            elif len(indices.size()) == 3:
+                # fake case (onehots) : [batch_size, max_len, vocab_size]
+                return self.embed(indices, mode='soft')
+            else:
+                raise Exception('Wrong embedding input dimension!')
 
     def _generate_pad_masks(self, x):
         # [bsz, word_embed_size, 1, max_len]

@@ -265,13 +265,3 @@ def to_one_hot(cfg, indices, num_class):
         one_hot = to_gpu(cfg.cuda, one_hot)
     one_hot.scatter_(dim, indices, 1.)
     return one_hot
-
-def compute_cosine_sim(out_word, embedding):
-    # compute cosine similarity
-    embed = embedding.embed.weight.detach()
-    vocab_size, embed_size = embed.size()
-    embed = embed.permute(1, 0) # [embed_size, vocab_size]
-    out_embed = out_word.view(-1, embed_size) # [bsz(*maxlen), embed_size]
-    cos_sim = torch.mm(out_embed, embed) # [bsz(*maxlen), vocab_size]
-    cos_sim = cos_sim.view(*out_word.size()[:-1], vocab_size)
-    return cos_sim # [bsz, (max_len,) vocab_size]
