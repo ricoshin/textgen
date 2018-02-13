@@ -126,12 +126,24 @@ def print_ae_fr_sents(vocab, target_ids, output_ids, nline=5):
         log.info("[Y] " + ids_to_sent(vocab, out_ids, no_pad=False))
         print_line()
 
-def print_gen_sents(vocab, output_ids, nline=999):
+def print_gen_sents(vocab, output_ids, nline=999, batch = None):
     print_line()
     for i, ids in enumerate(output_ids):
         if i > nline - 1: break
         #ids = pad_after_eos(vocab, ids)
         log.info(ids_to_sent(vocab, ids))
+        if batch is not None:
+            log.info(ids_to_sent(vocab, batch.a[i]))
+        print_line()
+    print_line(' ')
+
+def print_gen_sents_test(q_vocab, a_vocab, out_ids, batch=None, nline=999):
+    print_line()
+    for i, ids in enumerate(out_ids):
+        if i > nline -1 : break
+        log.info(ids_to_sent(q_vocab, ids))
+        if batch is not None:
+            log.info("answer: " + ids_to_sent(a_vocab, batch.a[i].data.cpu()))
         print_line()
     print_line(' ')
 

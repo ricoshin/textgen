@@ -3,7 +3,7 @@ import os
 
 from loader.simple_questions import SimpleQuestionsDataset
 from loader.preprocess import preprocess_data_vocab, preprocess_simpleqa, split_simple_questions
-#from test.test import test
+from test.test import test
 #from train.train import train
 from train.train_qa import train
 from train.network import Network

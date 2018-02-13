@@ -14,6 +14,24 @@ import pdb
 dict = collections.OrderedDict
 
 
+def mask_output_target(output, target, ntokens):
+    # Create sentence length mask over padding
+    target_mask = target.gt(0) # greater than 0
+    masked_target = target.masked_select(target_mask)
+    # target_mask.size(0) = batch_size*max_len
+    # output_mask.size() : batch_size*max_len x ntokens
+    target_mask = target_mask.unsqueeze(1)
+    output_mask = target_mask.expand(target_mask.size(0), ntokens)
+    # flattened_output.size(): batch_size*max_len x ntokens
+    flattened_output = output.view(-1, ntokens)
+    # flattened_output.masked_select(output_mask).size()
+    #  num_of_masked_words(in batch, excluding <pad>)*ntokens
+    masked_output = flattened_output.masked_select(output_mask)
+    masked_output = masked_output.view(-1, ntokens)
+    # masked_output.size() : num_of_masked_words x ntokens
+    # masked_target : num_of_masked_words
+    return masked_output, masked_target
+
 def train_ae(cfg, net, batch):
     # train encoder for answer
     net.ans_enc.train()
@@ -29,24 +47,6 @@ def train_ae(cfg, net, batch):
     #output = ae(batch.src, batch.len, noise=True)
     code = net.enc(batch.q, batch.q_len, noise=True, save_grad_norm=True)
     output = net.dec(torch.cat((code, ans_code), 1), batch.q, batch.q_len) # torch.cat dim=1
-
-    def mask_output_target(output, target, ntokens):
-        # Create sentence length mask over padding
-        target_mask = target.gt(0) # greater than 0
-        masked_target = target.masked_select(target_mask)
-        # target_mask.size(0) = batch_size*max_len
-        # output_mask.size() : batch_size*max_len x ntokens
-        target_mask = target_mask.unsqueeze(1)
-        output_mask = target_mask.expand(target_mask.size(0), ntokens)
-        # flattened_output.size(): batch_size*max_len x ntokens
-        flattened_output = output.view(-1, ntokens)
-        # flattened_output.masked_select(output_mask).size()
-        #  num_of_masked_words(in batch, excluding <pad>)*ntokens
-        masked_output = flattened_output.masked_select(output_mask)
-        masked_output = masked_output.view(-1, ntokens)
-        # masked_output.size() : num_of_masked_words x ntokens
-        # masked_target : num_of_masked_words
-        return masked_output, masked_target
 
     masked_output, masked_target = \
         mask_output_target(output, batch.q_tar, cfg.vocab_size)
@@ -166,7 +166,6 @@ def train_disc_c(cfg, net, code_real, code_fake, batch):
             gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
             if gan_norm == .0:
                 log.warning("zero code_gan norm!")
-                import ipdb; ipdb.set_trace()
                 normed_grad = grad
             else:
                 normed_grad = grad * net.enc.grad_norm / gan_norm
@@ -209,10 +208,16 @@ def train_disc_ans(cfg, net, batch):
     net.ans_enc.zero_grad()
     ans_code = net.ans_enc(batch.a, batch.a_len, noise=True, ispacked=False, save_grad_norm=True)
 
+    # decoder
+    net.dec.train()
+    net.dec.zero_grad()
+    code = net.enc(batch.q, batch.q_len, noise=True, save_grad_norm=True)
+    output = net.dec(torch.cat((code, ans_code), 1), batch.q, batch.q_len) # torch.cat dim=1
+    max_value, max_indices = torch.max(output, 2)
     # train answer discriminator
     net.disc_ans.train()
     net.disc_ans.zero_grad()
-    logit = net.disc_ans(batch.q, batch.q_len)
+    logit = net.disc_ans(max_indices)
 
     # calculate loss and backpropagate
     # logit : (N=question sent len, C=answer embed size)
@@ -232,20 +237,28 @@ def train_disc_ans(cfg, net, batch):
 
     return logit, loss
 
-def eval_disc_ans(net, batch, ans_code):
+def eval_disc_ans(net, batch, ans_code, fixed_noise):
     net.disc_ans.eval()
-    logit = net.disc_ans(batch.q, batch.q_len)
+    net.gen.eval()
+    net.dec.eval()
 
-    # calculate kl divergence loss
+    # generate fake sents
+    code_fake = net.gen(fixed_noise)
+    ids_fake, _ = net.dec.generate(torch.cat((code_fake, ans_code), 1))
+    #ids_fake = torch.FloatTensor(ids_fake)
+    # discriminator output
+    logit = net.disc_ans(Variable(torch.cuda.LongTensor(ids_fake.tolist())))
+    # calculate cosine embedding loss
     ans_code = Variable(ans_code.data, requires_grad = False)
     y = [1 for _ in range(logit.data.shape[0])]
     y = Variable(torch.cuda.FloatTensor(y), requires_grad = False)
     loss = F.cosine_embedding_loss(logit, ans_code, y)
+    
     # print discriminator output
-    code = net.enc(batch.q, batch.q_len, noise=True)
-    output = net.dec(torch.cat((code, logit), 1), batch.q, batch.q_len)
-    max_value, max_indices = torch.max(output, 2)
+    output = net.dec(torch.cat((code_fake, logit), 1), batch.q, batch.q_len)
+    max_value, max_indices = torch.max(output, 2, keepdim=True)
     target = batch.q_tar.view(output.size(0), -1)
-    outputs = max_indices.data.cpu().numpy()
+    outputs = output.data.cpu().numpy()
     targets = target.data.cpu().numpy()
     return logit, loss, targets, outputs
+

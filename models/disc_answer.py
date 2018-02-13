@@ -55,7 +55,8 @@ class AnswerDiscriminator(nn.Module):
         x = F.max_pool1d(x, x.size(2)).squeeze(2)
         return x
 
-    def forward(self, x, lengths): # N : input length
+    # x : decoder output
+    def forward(self, x): # N : input length
         x = self.embed(x)  # (N, W, D)
 
         x = x.unsqueeze(1)  # (N, Ci, W, D)

@@ -50,7 +50,6 @@ def train(net):
                 pdb.set_trace()
                 """
                 rp_ae = train_ae(cfg, net, batch)
-                net.optim_ans_enc.step()
                 net.optim_enc.step()
                 net.optim_dec.step()
                 sv.inc_batch_step()
@@ -71,6 +70,7 @@ def train(net):
                     # train answer discriminator
                     logit, loss = train_disc_ans(cfg, net, batch)
 
+                    net.optim_ans_enc.step()
                     net.optim_disc_ans.step()
                     net.optim_disc_c.step()
 
@@ -105,22 +105,22 @@ def train(net):
             #print_ae_sents(net.vocab, tar)
 
             # Generator + Discriminator_c
-            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise, ans_code)
+            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise, ans_code) # return generated fake ids
 
             # dump results
             rp_dc.update(dict(G=rp_gen.loss)) # NOTE : mismatch
             rp_dc.drop_log_and_events(sv, writer, False)
-            print_gen_sents(net.q_vocab, ids_fake_eval, cfg.log_nsample)
+            print_gen_sents(net.q_vocab, ids_fake_eval, cfg.log_nsample) # generator sents
 
-            fake_sents = ids_to_sent_for_eval(net.q_vocab, ids_fake_eval)
+            fake_sents = ids_to_sent_for_eval(net.q_vocab, ids_fake_eval) # return sents
 
             # Answer Discriminator
-            logit, loss, targets, outputs = eval_disc_ans(net, batch, ans_code)
+            logit, loss, targets, outputs = eval_disc_ans(net, batch, ans_code, fixed_noise)
 
             # dump results
             log.info('disc_ans loss: {}'.format(loss.data))
-            #log.info('targets: {}'.format(targets))
-            #log.info('outputs: {}'.format(outputs))
+            #log.info('targets: {}'.format(ids_to_sent_for_eval(net.a_vocab, targets)))
+            #log.info('outputs: {}'.format(ids_to_sent_for_eval(net.a_vocab, outputs)))
             writer.add_scalar('Disc_Ans/1_loss', loss.data, sv.global_step)
             sv.save()
 
