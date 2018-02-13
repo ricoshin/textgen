@@ -72,7 +72,7 @@ parser.add_argument('--kernel_sizes', type=str, default='2,3,4',
                     help='kernel sizes of text CNN')
 parser.add_argument('--kernel_num', type=int, default=100,
                     help='number of each size of kernel')
-parser.add_argument('--with_attn', type=str2bool, default=True,
+parser.add_argument('--with_attn', type=str2bool, default=False,
                     help='including n-gram attention discriminator')
 parser.add_argument('--disc_s_in', type=str, default='embed',
                     choices=['embed', 'hidden', 'both'],
@@ -129,6 +129,8 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 parser.add_argument('--anneal_step', type=int, default=200,
                     help='autoencdoer noise annealing interval')
+parser.add_argument('--embed_temp', type=float, default=10,
+                    help='temperature of log softmax in word prediction')
 
 # Evaluation Arguments
 parser.add_argument('--sample', action='store_true',

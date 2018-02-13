@@ -1,3 +1,4 @@
+import logging
 import math
 import collections
 
@@ -6,22 +7,32 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
-from train.train_helper import ResultPackage, to_one_hot
+from train.train_helper import ResultPackage, compute_cosine_sim
 from utils.utils import to_gpu
 
+log = logging.getLogger('main')
 dict = collections.OrderedDict
 
 
-def train_ae(cfg, net, batch):
+def train_ae(cfg, net, batch, mode):
+    net.embed.train()
+    net.embed.zero_grad()
     net.enc.train()
     net.enc.zero_grad()
     net.dec.train()
     net.dec.zero_grad()
     # output.size(): batch_size x max_len x ntokens (logits)
 
-    #output = ae(batch.src, batch.len, noise=True)
-    code = net.enc(batch.src, batch.len, noise=True, save_grad_norm=True)
-    out_word, out_tag = net.dec(code, batch.src, batch.src_tag, batch.len)
+    in_embed = net.embed(batch.src)
+    code = net.enc(in_embed, noise=True, save_grad_norm=True)
+
+    if mode == 'tf':
+        decoded = net.dec(code, batch.src, batch.len, mode='tf')
+    elif mode == 'fr':
+        decoded = net.dec(code, max(batch.len), mode='fr')
+
+    out_word, out_word_p, out_tag = decoded
+
 
     def mask_output_target(output, target, ntokens):
         # Create sentence length mask over padding
@@ -42,11 +53,7 @@ def train_ae(cfg, net, batch):
         return masked_output, masked_target
 
     # compute word prediction loss and accuracy
-    msk_out, msk_tar = mask_output_target(out_word, batch.tar, cfg.vocab_size)
-    # selected = to_gpu(cfg.cuda, Variable(torch.zeros(msk_tar.size())))
-    # for i, (out, tar) in enumerate(zip(msk_out, msk_tar)):
-    #    selected[i] = out[tar]
-    # loss_word = - torch.mean(selected)
+    msk_out, msk_tar = mask_output_target(out_word_p, batch.tar, cfg.vocab_size)
     loss_word = net.dec.criterion_nll(msk_out, msk_tar)
     _, max_ids = torch.max(msk_out, 1)
     acc_word = torch.mean(max_ids.eq(msk_tar).float())
@@ -65,11 +72,62 @@ def train_ae(cfg, net, batch):
     # `clip_grad_norm` to prevent exploding gradient in RNNs / LSTMs
     torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
     torch.nn.utils.clip_grad_norm(net.dec.parameters(), cfg.clip)
-    return ResultPackage("Autoencoder",
-                         dict(Loss_word=loss_word.data,
-                              Loss_tag=loss_tag.data,
-                              Acc_word=acc_word.data[0],
-                              Acc_tag=acc_tag.data[0]))
+
+    if mode == 'tf':
+        name = "Autoencoder"
+    elif mode == 'fr':
+        name = "Autoencoder_fr"
+    return ResultPackage(name, dict(Loss_word=loss_word.data,
+                                    Loss_tag=loss_tag.data,
+                                    Acc_word=acc_word.data[0],
+                                    Acc_tag=acc_tag.data[0]))
+
+
+def train_exposure(cfg, net, batch):
+    net.embed.eval()
+    net.enc.eval()
+    net.dec.train()
+    net.dec.zero_grad()
+
+    # encode
+    in_embed = net.embed(batch.src)
+    code = net.enc(in_embed, noise=False, save_grad_norm=False)
+
+    # decode
+    code_new = Variable(code.data, requires_grad=False)
+    out_word_tf, _, out_tag = net.dec(code_new, batch.src, batch.len, mode='tf')
+    out_word_fr, _, out_tag = net.dec(code_new, max(batch.len), mode='fr')
+
+    # encode again
+    code_tf = net.enc(out_word_tf, noise=False, save_grad_norm=False)
+    code_fr = net.enc(out_word_fr, noise=False, save_grad_norm=False)
+
+    code_tar = Variable(code_tf.data, requires_grad=False)
+    # [bsz, hidden_size]
+    bsz = code_tar.size(0)
+    # trick for batch-wise dot product
+    similarity = torch.bmm(code_tar.view(bsz, 1, -1), code_fr.view(bsz, -1, 1))
+    loss = torch.mean(similarity)
+    #loss = net.enc.criterion_mse(code_fr, code_tar)
+    loss.backward()
+
+
+def train_enc(cfg, net, batch):
+    net.embed.eval()
+    net.enc.train()
+    net.enc.zero_grad()
+    net.dec.train()
+    net.enc.zero_grad()
+
+    # code reconstruction loss
+    in_embed = net.embed(batch.src)
+    code = net.enc(in_embed, noise=False, save_grad_norm=False)
+    out_word, _, out_tag = net.dec(code, batch.src, batch.len, mode='tf')
+    code_recon = net.enc(out_word, noise=False, save_grad_norm=False)
+
+    code_detached = Variable(code.data, requires_grad=False)
+    loss = net.enc.criterion_mse(code_recon, code_detached)
+    loss.backward()
 
 
 def eval_ae_tf(net, batch):
@@ -77,11 +135,12 @@ def eval_ae_tf(net, batch):
     net.dec.eval()
     # output.size(): batch_size x max_len x ntokens (logits)
     #output = ae(batch.src, batch.len, noise=True)
-    code = net.enc(batch.src, batch.len, noise=True)
-    output, _ = net.dec(code, batch.src, batch.src_tag, batch.len)
+    in_embed = net.embed(batch.src)
+    code = net.enc(in_embed, noise=True)
+    _, out_word_p, _ = net.dec(code, batch.src, batch.len, mode='tf') #NOTE
 
-    max_value, max_indices = torch.max(output, 2)
-    target = batch.tar.view(output.size(0), -1)
+    max_value, max_indices = torch.max(out_word_p, 2)
+    target = batch.tar.view(out_word_p.size(0), -1)
     outputs = max_indices.data.cpu().numpy()
     targets = target.data.cpu().numpy()
 
@@ -94,8 +153,8 @@ def eval_ae_fr(net, batch):
     # output.size(): batch_size x max_len x ntokens (logits)
     #code = ae.encode_only(cfg, batch, train=False)
     #max_ids, outs = ae.decode_only(cfg, code, vocab, train=False)
-
-    code = net.enc(batch.src, batch.len, noise=True)
+    in_embed = net.embed(batch.src)
+    code = net.enc(in_embed, noise=True)
     max_ids, _, outs = net.dec.generate(code)
 
     targets = batch.tar.view(outs.size(0), -1)
@@ -112,12 +171,13 @@ def eval_gen_dec(cfg, net, fixed_noise):
     return ids_fake
 
 
-def train_dec(cfg, net, fake_code, vocab):
+def train_gen_s(cfg, net, fake_code, vocab):
+    net.enc.eval()
     net.dec.train()
     net.dec.zero_grad()
 
-    fake_ids, _, fake_outs = net.dec.generate(fake_code)
-    # fake_outs.size() : [batch_size*2, max_len, vocab_size]
+    embed_fake, _, _ = net.dec(fake_code, cfg.max_len, mode='fr')
+    code_fake = net.enc(embed_fake, noise=False)
 
     # register hook on logits of decoder
     def grad_hook(grad):
@@ -125,7 +185,6 @@ def train_dec(cfg, net, fake_code, vocab):
             gan_norm = torch.norm(grad, 2, 1).detach().data.mean()
             if gan_norm == .0:
                 log.warning("zero sample_gan norm!")
-                import pdb; pdb.set_trace()
                 normed_grad = grad
             else:
                 normed_grad = grad * net.dec.grad_norm / gan_norm
@@ -135,21 +194,18 @@ def train_dec(cfg, net, fake_code, vocab):
         normed_grad *= math.fabs(cfg.gan_to_ae)
         return normed_grad
 
-    net.dec.logits.register_hook(grad_hook)
+    embed_fake.register_hook(grad_hook)
 
     # loss
-    pred_fake, attn_fake = net.disc_s(fake_outs)
-    label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_fake.size())))
-    loss = net.disc_s.criterion_bce(pred_fake, label_real)
+    loss, pred = net.disc_c(code_fake)
 
-    # pred average
-    mean = pred_fake.mean()
-
-    # backward
-    loss.backward()
+    # loss / backprop
+    one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
+    loss.backward(one)
+    pred_mean = pred.mean()
 
     return ResultPackage("Decoder_Loss",
-                         dict(loss=loss.data[0], pred=mean.data[0]))
+                         dict(loss=loss.data[0], pred=pred_mean.data[0]))
 
 
 def train_gen(cfg, net):
@@ -161,12 +217,11 @@ def train_gen(cfg, net):
 
     # loss / backprop
     one = to_gpu(cfg.cuda, torch.FloatTensor([1]))
-    loss.backward(one)
+    loss.backward(one, retain_graph=True) # Note reuse fake code in train_gen_s
     pred_mean = pred.mean()
 
     result = ResultPackage("Generator_Loss",
-                           dict(loss=loss.data[0],
-                                pred=pred_mean.data[0]))
+                           dict(loss=loss.data[0], pred=pred_mean.data[0]))
 
     return result, fake_code
 
@@ -176,7 +231,8 @@ def generate_codes(cfg, net, batch):
     net.enc.zero_grad()
     net.gen.eval()
 
-    code_real = net.enc(batch.src, batch.len, noise=False)
+    in_embed = net.embed(batch.src)
+    code_real = net.enc(in_embed, noise=False)
     code_fake = net.gen(None)
 
     return code_real, code_fake
@@ -231,18 +287,18 @@ def train_disc_c(cfg, net, code_real, code_fake):
     loss_total = loss_real - loss_fake
 
     # Prediction layer (for interpretation)
-    label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
-    label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
-    loss_pred_real = net.disc_s.criterion_bce(pred_real, label_real)
-    loss_pred_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
+    # label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
+    # label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
+    # loss_pred_real = net.disc_s.criterion_bce(pred_real, label_real)
+    # loss_pred_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
 
     # pred mean
-    pred_real_mean = pred_real.mean()
-    pred_fake_mean = pred_fake.mean()
+    # pred_real_mean = pred_real.mean()
+    # pred_fake_mean = pred_fake.mean()
 
     # backprop.
-    loss_pred_real.backward()
-    loss_pred_fake.backward()
+    # loss_pred_real.backward()
+    # loss_pred_fake.backward()
 
     # `clip_grad_norm` to prvent exploding gradient problem in RNNs / LSTMs
     torch.nn.utils.clip_grad_norm(net.enc.parameters(), cfg.clip)
@@ -250,56 +306,57 @@ def train_disc_c(cfg, net, code_real, code_fake):
     return ResultPackage("Code_GAN_Loss",
                          dict(D_Loss_Total=loss_total.data[0],
                               D_Loss_Real=loss_real.data[0],
-                              D_Loss_Fake=loss_fake.data[0],
-                              D_Pred_Real=pred_real_mean.data[0],
-                              D_Pred_Fake=pred_fake_mean.data[0]))
+                              D_Loss_Fake=loss_fake.data[0]))
+                              # D_Pred_Real=pred_real_mean.data[0],
+                              # D_Pred_Fake=pred_fake_mean.data[0]))
 
 
 def train_disc_s(cfg, net, batch, code_real, code_fake):
-    net.dec.eval()
-    net.disc_s.train()
-    net.disc_s.zero_grad()
-
-    ids_real, _, outs_real = net.dec.generate(code_real)
-    ids_fake, _, outs_fake = net.dec.generate(code_fake)
-
-    # "real" fake (embeddings)
-    outs_fake = torch.cat([outs_real, outs_fake], dim=0)
-    code_fake = torch.cat([code_real, code_fake], dim=0)
-
-    # clamp parameters to a cube
-    for p in net.disc_s.parameters():
-        p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
-        # WGAN clamp (default:0.01)
-
-    pred_real, attn_real = net.disc_s(batch.src.detach())
-    pred_fake, attn_fake = net.disc_s(outs_fake.detach())
-
-    # GAN loss
-    label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
-    label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
-    loss_real = net.disc_s.criterion_bce(pred_real, label_real)
-    loss_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
-    loss_total = loss_real + loss_fake
-
-    # pred mean
-    real_mean = pred_real.mean()
-    fake_mean = pred_fake.mean()
-
-    # backprop.
-    loss_real.backward()
-    loss_fake.backward()
-
-    # results
-    loss_gan = ResultPackage("Sample_GAN_loss",
-                             dict(D_Total=loss_total,
-                                  D_Real=loss_real,
-                                  D_Fake=loss_fake))
-    pred_gan = ResultPackage("Sample_GAN_pred",
-                             dict(D_real=real_mean,
-                                  D_Fake=fake_mean))
-
-    ids = [batch.src.data.cpu().numpy(), ids_fake]
-    attns = [attn_real, attn_fake]
-
-    return loss_gan, pred_gan, ids, attns
+    pass
+    # net.dec.eval()
+    # net.disc_s.train()
+    # net.disc_s.zero_grad()
+    #
+    # ids_real, _, outs_real = net.dec.generate(code_real)
+    # ids_fake, _, outs_fake = net.dec.generate(code_fake)
+    #
+    # # "real" fake (embeddings)
+    # outs_fake = torch.cat([outs_real, outs_fake], dim=0)
+    # code_fake = torch.cat([code_real, code_fake], dim=0)
+    #
+    # # clamp parameters to a cube
+    # for p in net.disc_s.parameters():
+    #     p.data.clamp_(-cfg.gan_clamp, cfg.gan_clamp) # [min,max] clamp
+    #     # WGAN clamp (default:0.01)
+    #
+    # pred_real, attn_real = net.disc_s(batch.src.detach())
+    # pred_fake, attn_fake = net.disc_s(outs_fake.detach())
+    #
+    # # GAN loss
+    # label_real = to_gpu(cfg.cuda, Variable(torch.ones(pred_real.size())))
+    # label_fake = to_gpu(cfg.cuda, Variable(torch.zeros(pred_fake.size())))
+    # loss_real = net.disc_s.criterion_bce(pred_real, label_real)
+    # loss_fake = net.disc_s.criterion_bce(pred_fake, label_fake)
+    # loss_total = loss_real + loss_fake
+    #
+    # # pred mean
+    # real_mean = pred_real.mean()
+    # fake_mean = pred_fake.mean()
+    #
+    # # backprop.
+    # loss_real.backward()
+    # loss_fake.backward()
+    #
+    # # results
+    # loss_gan = ResultPackage("Sample_GAN_loss",
+    #                          dict(D_Total=loss_total,
+    #                               D_Real=loss_real,
+    #                               D_Fake=loss_fake))
+    # pred_gan = ResultPackage("Sample_GAN_pred",
+    #                          dict(D_real=real_mean,
+    #                               D_Fake=fake_mean))
+    #
+    # ids = [batch.src.data.cpu().numpy(), ids_fake]
+    # attns = [attn_real, attn_fake]
+    #
+    # return loss_gan, pred_gan, ids, attns

@@ -50,6 +50,8 @@ class CodeDiscriminator(nn.Module):
         self.wgan_linear = nn.Linear(layer_sizes[-1], noutput) # WGAN
         self.pred_linear = nn.Linear(layer_sizes[-1], noutput) # for prediction
 
+        self.criterion_bce = nn.BCELoss()
+
         # gan_disc
         # MLP_D(
         #   (layer1): Linear(in_features=nhidden, out_features=300)
@@ -64,7 +66,10 @@ class CodeDiscriminator(nn.Module):
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
-            x = layer(x)
+            try:
+                x = layer(x)
+            except:
+                import pdb; pdb.set_trace()
         x_wgan = torch.mean(self.wgan_linear(x))
         x_pred = Variable(x.data, requires_grad=True)
         x_pred = F.sigmoid(self.pred_linear(x_pred))
