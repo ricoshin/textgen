@@ -129,7 +129,7 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 parser.add_argument('--anneal_step', type=int, default=200,
                     help='autoencdoer noise annealing interval')
-parser.add_argument('--embed_temp', type=float, default=10,
+parser.add_argument('--embed_temp', type=float, default=100,
                     help='temperature of log softmax in word prediction')
 
 # Evaluation Arguments

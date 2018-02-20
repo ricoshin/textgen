@@ -28,7 +28,11 @@ class WordEmbedding(nn.Module):
 
         # fix embedding
         if cfg.fix_embed:
-            self.embed.weight.requires_grad = False
+            self.requires_grad = False
+        else:
+            self.requires_grad = True
+
+        self.embed.weight.requires_grad = self.requires_grad
 
 
     def _init_weights(self):
@@ -39,7 +43,13 @@ class WordEmbedding(nn.Module):
 
     def forward(self, indices, mode='hard'):
         assert(mode in ['hard', 'soft'])
-        self.embed.weight.variable = F.normalize(self.embed.weight, p=2, dim=1)
+
+        # normalize columns & zero PAD embedding
+        new_weight = F.normalize(self.embed.weight, p=2, dim=1)
+        new_weight[self.vocab.PAD_ID] = torch.zeros(self.embed_size)
+        self.embed.weight = nn.Parameter(new_weight.data,
+                                         requires_grad=self.requires_grad)
+
         if mode is 'hard':
             # indices : [bsz, max_len]
             assert(len(indices.size()) == 2)

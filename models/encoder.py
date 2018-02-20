@@ -39,7 +39,7 @@ class Encoder(nn.Module):
 
 
 class EncoderRNN(Encoder):
-    def __init__(self, cfg, embed):
+    def __init__(self, cfg):
         super(EncoderRNN, self).__init__(cfg)
 
         # RNN Encoder and Decoder
@@ -59,22 +59,19 @@ class EncoderRNN(Encoder):
         for p in self.encoder.parameters():
             p.data.uniform_(-initrange, initrange)
 
-    def forward(self, batch, noise, save_grad_norm=False):
-        code = self._encode(batch.src, batch.len, noise)
+    def forward(self, in_embed, lengths, noise, save_grad_norm=False):
+        code = self._encode(in_embed, lengths, noise)
 
         if save_grad_norm and code.requires_grad:
             code.register_hook(self._store_grad_norm)
 
         return code
 
-    def _encode(self, indices, lengths, noise):
+    def _encode(self, in_embed, lengths, noise):
          # indices = [bsz, max_len], lengths = [bsz]
-        assert(len(indices.size()) == 2)
-        assert(len(lengths) == indices.size(0))
 
         # embedding and pack
-        embeddings = self.embed(indices) # [bsz, max(lenghts), embed_dim]
-        packed_embeddings = pack_padded_sequence(input=embeddings,
+        packed_embeddings = pack_padded_sequence(input=in_embed,
                                                  lengths=lengths,
                                                  batch_first=True)
         # rnn encoder

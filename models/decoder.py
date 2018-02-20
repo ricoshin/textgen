@@ -27,14 +27,10 @@ class Decoder(nn.Module):
         self.grad_norm = norm.detach().data.mean()
         return grad
 
-TAG=True
-TF_TAG=0
-FR_TAG=0
-
 class DecoderRNN(Decoder):
     def __init__(self, cfg, embed):
         super(DecoderRNN, self).__init__(cfg, embed)
-        input_size_dec = cfg.word_embed_size + cfg.hidden_size + 1
+        input_size_dec = cfg.word_embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=input_size_dec,
                                hidden_size=cfg.hidden_size,
                                num_layers=1,
@@ -44,7 +40,7 @@ class DecoderRNN(Decoder):
         self.linear_word = nn.Linear(cfg.hidden_size, cfg.word_embed_size)
 
         if cfg.pos_tag:
-            input_size_tag = cfg.word_embed_size + cfg.hidden_size + 1
+            input_size_tag = cfg.word_embed_size + cfg.hidden_size
             self.tagger = nn.LSTM(input_size=input_size_tag,
                                   hidden_size=cfg.hidden_size,
                                   dropout=cfg.dropout,
@@ -92,16 +88,24 @@ class DecoderRNN(Decoder):
     def _pads_after_eos(self, ids, out, finished):
         # zero ids after eos
         assert(self.vocab.PAD_ID == 0)
+        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
         ids_mask = finished.eq(0)
         ids = ids * ids_mask.long()
         out_mask = ids_mask.unsqueeze(2).expand_as(out)
         out = out * out_mask.float()
-        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
         return ids, out, finished
+
+    def _pad_ids_after_eos(self, ids, finished):
+        # zero ids after eos
+        assert(self.vocab.PAD_ID == 0)
+        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
+        ids_mask = finished.eq(0)
+        ids = ids * ids_mask.long()
+        return ids, finished
 
     def _compute_cosine_sim(self, out_word):
         # compute cosine similarity
-        embed = self.embed.embed.weight.detach()
+        embed = F.normalize(self.embed.embed.weight, p=2, dim=1).detach()
         vocab_size, embed_size = embed.size()
         embed = embed.permute(1, 0) # [embed_size, vocab_size]
         out_embed = out_word.view(-1, embed_size) # [bsz(*maxlen), embed_size]
@@ -129,15 +133,13 @@ class DecoderRNN(Decoder):
 
         # length should be increased as well
         lengths = [length + 1 for length in lengths]
-        # generate tag
-        mode_tag = self._get_tag_batch([batch_size, max(lengths)], TF_TAG)
 
         # Decoder
         init_state = self._init_hidden(batch_size)
         embed_dec = self.embed(ids_dec) # for teacher forcing
 
         all_hidden = hidden.unsqueeze(1).repeat(1, max(lengths), 1)
-        augmented_input = torch.cat([embed_dec, all_hidden, mode_tag], 2)
+        augmented_input = torch.cat([embed_dec, all_hidden], 2)
         packed_in_dec = pack_padded_sequence(input=augmented_input,
                                              lengths=lengths,
                                              batch_first=True)
@@ -145,20 +147,22 @@ class DecoderRNN(Decoder):
         out_dec, len_dec = pad_packed_sequence(packed_out_dec, batch_first=True)
 
         out_dec = out_dec.contiguous().view(-1, self.cfg.hidden_size)
-        words = self.linear_word(out_dec) # output layer for word prediction
-        words = words.view(batch_size, max(lengths), self.cfg.word_embed_size)
-        words = F.normalize(words, p=2, dim=2)
-        words_cos_sim = self._compute_cosine_sim(words)
-        words_prob = F.log_softmax(words_cos_sim * self.cfg.embed_temp, 2)
+        words_embed = self.linear_word(out_dec) # output layer for word prediction
+        words_embed = words_embed.view(batch_size, max(lengths),
+                                       self.cfg.word_embed_size)
+        words_embed = F.normalize(words_embed, p=2, dim=2)
+        words_cosim = self._compute_cosine_sim(words_embed)
+        _, words_id = torch.max(words_cosim, 2)
+        words_prob = F.log_softmax(words_cosim * self.cfg.embed_temp, 2)
 
 
-        if out_dec.requires_grad: # NOTE fix later!
-            out_dec.register_hook(self._store_grad_norm)
+        if words_embed.requires_grad: # NOTE fix later!
+            words_embed.register_hook(self._store_grad_norm)
             #log.debug("Decoder gradient norm has been saved.")
 
         # POS tagger
         #new_out_dec = Variable(words.data, requires_grad=False)
-        augmented_input = torch.cat([words, all_hidden, mode_tag], 2)
+        augmented_input = torch.cat([words_embed, all_hidden], 2)
         packed_in_tag = pack_padded_sequence(input=augmented_input,
                                              lengths=lengths,
                                              batch_first=True)
@@ -173,15 +177,12 @@ class DecoderRNN(Decoder):
         tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 
-        return words, words_prob, tags
+        return words_embed, words_id, words_prob, tags
 
     def _decode_fr(self, hidden, max_len):
         batch_size = hidden.size(0)
         hidden = hidden.unsqueeze(1)
         state_dec = state_tag = self._init_hidden(batch_size)
-
-         # generate tag
-        mode_tag = self._get_tag_batch([batch_size, 1], FR_TAG)
 
         # <sos>
         sos_ids_dec = self._get_sos_batch(batch_size, self.vocab)
@@ -189,8 +190,9 @@ class DecoderRNN(Decoder):
         # sos_embedding : [batch_size, 1, embedding_size]
 
         # unroll
-        all_words = [] # for differentiable input of discriminator
+        all_words_embed = [] # for differentiable input of discriminator
         all_words_prob = []
+        all_words_id = []
         all_tags = [] # for grad norm scaling
 
         finished = torch.ByteTensor(batch_size, 1).zero_()
@@ -199,36 +201,44 @@ class DecoderRNN(Decoder):
 
         for i in range(max_len + 1): # for each step
             # decoder
-            input_dec = torch.cat([embed_dec, hidden, mode_tag], 2)
+            input_dec = torch.cat([embed_dec, hidden], 2)
             outs_dec, state_dec = self.decoder(input_dec, state_dec)
-            words = self.linear_word(outs_dec)
-            words = F.normalize(words, p=2, dim=2)
-            words_cosim = self._compute_cosine_sim(words)
+            words_embed = self.linear_word(outs_dec)
+            words_embed = F.normalize(words_embed, p=2, dim=2)
+            words_cosim = self._compute_cosine_sim(words_embed)
             words_prob = F.log_softmax(words_cosim * self.cfg.embed_temp, 2)
             _, words_id = torch.max(words_cosim, 2)
+
+            # if eos token has already appeared, fill zeros
+            words_id, words_embed, finished = \
+                self._pads_after_eos(words_id, words_embed, finished)
+            # NOTE : words_prob is not considered here
+
             embed_dec = self.embed(words_id)
             #embed_dec = words
 
             # tagger
             #words_detached = Variable(outs_dec.data, requires_grad=False)
-            input_tag = torch.cat([words, hidden, mode_tag], 2)
+            input_tag = torch.cat([words_embed, hidden], 2)
             outs_tag, state_tag = self.tagger(input_tag, state_tag)
             tags = self.linear_tag(outs_tag)
 
             # append generated token ids & outs at each step
-            all_words.append(words)
+            all_words_embed.append(words_embed)
             all_words_prob.append(words_prob)
+            all_words_id.append(words_id)
             all_tags.append(tags)
 
         # concatenate all the results
-        words = torch.cat(all_words, 1)
+        words_embed = torch.cat(all_words_embed, 1)
         words_prob = torch.cat(all_words_prob, 1)
+        words_id = torch.cat(all_words_id, 1)
         tags = torch.cat(all_tags, 1)
 
-        if words.requires_grad: # NOTE fix!!
-            words.register_hook(self._store_grad_norm)
+        if words_embed.requires_grad: # NOTE fix!!
+            words_embed.register_hook(self._store_grad_norm)
 
-        return words, words_prob, tags
+        return words_embed, words_id, words_prob, tags
 
     def generate(self, hidden):
         if not self.cfg.backprop_gen:
