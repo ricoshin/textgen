@@ -40,7 +40,6 @@ class Generator(nn.Module):
 
         layer = nn.Linear(layer_sizes[-1], noutput)
         self.layers.append(layer)
-        #self.add_module("layer"+str(len(self.layers)), layer)
         self.add_module("layer"+str(len(layer_sizes)), layer) # bug fix
 
         # Generator(
@@ -63,6 +62,7 @@ class Generator(nn.Module):
 
         for i, layer in enumerate(self.layers):
             x = layer(x)
+
         return x
 
     def _init_weights(self):

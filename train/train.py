@@ -14,9 +14,10 @@ from train.train_models import (train_ae, eval_ae_tf, eval_ae_fr, train_gen_s,
                                 train_gen, train_disc_c, train_disc_s,
                                 generate_codes, eval_gen_dec, train_enc,
                                 train_exposure, recon_code_fake)
-from train.train_helper import (load_test_data, print_ae_tf_sents,
-                                print_ae_fr_sents, print_gen_sents,
-                                ids_to_sent_for_eval, halve_attns, print_attns)
+from train.train_helper import (ResultPackage, load_test_data,
+                                print_ae_tf_sents, print_ae_fr_sents,
+                                print_gen_sents, ids_to_sent_for_eval,
+                                halve_attns, print_attns)
 from train.supervisor import Supervisor
 from utils.utils import set_random_seed, to_gpu
 
@@ -63,38 +64,41 @@ def train(net):
                 for i in range(cfg.niters_gan_d): # default: 5
                     batch = net.data_gan.next()
 
-                    # train CodeDiscriminator
+                    # train code discriminator
                     code_real, code_fake = generate_codes(cfg, net, batch)
                     rp_dc = train_disc_c(cfg, net, code_real, code_fake)
                     #err_dc_total, err_dc_real, err_dc_fake = err_dc
                     net.optim_enc.step()
                     net.optim_disc_c.step()
 
-                    # train SampleDiscriminator
+                    # train sample discriminator
                     code_fake_r = recon_code_fake(cfg, net, code_fake)
                     rp_dc_r = train_disc_c(cfg, net, code_real, code_fake_r)
                     net.optim_disc_c.step()
 
-                    # if sv.epoch_step >= cfg.disc_s_hold:
-                    #     rp_ds_loss, rp_ds_pred, ids, attns = \
-                    #         train_disc_s(cfg, net, batch, code_real, code_fake)
-                    #     net.optim_disc_s.step()
-
                 # train generator(with disc_c) / decoder(with disc_s)
                 for i in range(cfg.niters_gan_g): # default: 1
+
+                    # train code generator
                     rp_gen, code_fake = train_gen(cfg, net)
                     net.optim_gen.step()
-                #     if sv.epoch_step >= cfg.disc_s_hold:
+
+                    # train sample generator
                     rp_dec = train_gen_s(cfg, net, code_fake, net.vocab)
                     net.optim_gen_s.step()
 
-            if not sv.batch_step % cfg.log_interval == 0:
+            if not sv.global_step % cfg.log_interval == 0:
                 continue
 
             # exponentially decaying noise on autoencoder
             # noise_raius = 0.2(default)
             # noise_anneal = 0.995(default) NOTE: fix this!
-            net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
+            # if sv.global_step % 200 == 0:
+            #     net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
+
+            rp_noise = ResultPackage('Autoencoder',
+                                     dict(Noise_radius=net.enc.noise_radius))
+            rp_noise.drop_log_and_events(sv, writer, False)
 
             # Autoencoder
             batch = net.data_eval.next()
