@@ -9,9 +9,9 @@ import torch.nn.functional as F
 from nn.attention import MultiLinear4D, WordAttention, LayerAttention
 from nn.embedding import WordEmbedding
 from train.train_helper import ResultPackage
-from utils.utils import Config, to_gpu
+from utils.utils import to_gpu
 
-from models.encoder import Encoder
+from models.base_module import BaseAutoencoder
 
 log = logging.getLogger('main')
 
@@ -53,86 +53,14 @@ class EncoderDiscModeWrapper(object):
         self.enc_disc.load_state_dict(load)
 
 
-class EncoderDiscArchitect(object):
+class EncoderDisc(BaseAutoencoder):
     def __init__(self, cfg):
-        # when "0" strides or filters, they will be automatically computed
-        # NOTE : add to parser.py later!
-        s = "2-1-0"         # strides
-        f = "5-5-0"         # filters
-        c = "300-400-500"   # channels
-        attn = "100-50"
-
-        self.s = [int(x) for x in s.split('-') if x is not '0']
-        self.f = [int(x) for x in f.split('-') if x is not '0']
-        self.c = [int(x) for x in c.split('-')]
-
-        self.n_conv = len(self.c)
-        assert(len(self.s) == len(self.f)) # both must have the same len
-
-        self.c = [self._get_in_c_size(cfg)] + self.c # input c
-        self.w = [cfg.max_len]
-        for i in range(len(self.f)):
-            self.w.append(self._next_w(self.w[i], self.f[i], self.s[i]))
-
-        if len(self.s) == (len(self.c) - 2):
-            # last layer (size dependant on the previous layer)
-            self.f += [self.w[-1]]
-            self.s += [1]
-            self.w += [1]
-
-        self._log_debug([self.n_conv], "n_conv")
-        self._log_debug(self.f, "filters")
-        self._log_debug(self.s, "strides")
-        self._log_debug(self.w, "widths")
-        self._log_debug(self.c, "channels")
-
-        if not cfg.with_attn:
-            return
-
-        self.attn = [int(x) for x in attn.split('-')]
-        assert(len(self.attn) == (self.n_conv -1)) # last attn does not exist
-
-        self.n_mat = self.c[-1] # for dimension matching
-        self.n_fc = 2
-        self.fc = [self.n_mat] * (self.n_fc) + [1]
-
-
-        self._log_debug([self.n_mat], "matching-dim")
-        self._log_debug(self.fc, "fully-connected")
-        self._log_debug(self.attn, "attentions")
-
-    def _get_in_c_size(self, cfg):
-        if cfg.disc_s_in == 'embed':
-            return cfg.word_embed_size
-        elif cfg.disc_s_in == 'hidden':
-            return cfg.hidden_size
-        else:
-            raise Exception("Unknown disc input type!")
-
-    def _next_w(self, in_size, f_size, s_size):
-        # in:width, f:filter, s:stride
-        next_size = (in_size - f_size) // s_size + 1
-        if next_size < 0:
-            raise ValueError("feature map size can't be smaller than 0!")
-        return next_size
-
-    def _log_debug(self, int_list, name):
-        str_list = ", ".join([str(i) for i in int_list])
-        log.debug(name + ": [%s]" % str_list)
-
-
-class EncoderDisc(Encoder):
-    def __init__(self, cfg):
-        super(EncoderDisc, self).__init__(cfg)
-        # Sentence should be represented as a matrix : [max_len x step_size]
-        # Step represetation can be :
-        #   - hidden states which each word is generated from
-        #   - embeddings that were porduced from generated word indices
-        # inputs.size() : [batch_size(N), 1(C), max_len(H), word_embed_size(W)]
-        arch = EncoderDiscArchitect(cfg)
-        cfg.update(dict(arch_enc_disc=Config(arch.__dict__)))
+        super(EncoderDisc, self).__init__()
+        self.cfg = cfg
+        arch = cfg.arch_enc_disc_cnn
         # expected input dim
         #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
+
         # main convoutional layers
         self.convs_enc = []
         self.convs_enc_no_bias = [] # just for calculate zero pad
@@ -145,7 +73,10 @@ class EncoderDisc(Encoder):
             self.add_module("MainConvNoBias(%d)" % (i+1), conv_nb)
 
         # last fc
-        self.fc_enc = MultiLinear4D(arch.c[-1], cfg.hidden_size, dim=1,
+        self.fc_mu = MultiLinear4D(arch.c[-1], cfg.hidden_size, dim=1,
+                                    n_layers=1)
+
+        self.fc_logvar = MultiLinear4D(arch.c[-1], cfg.hidden_size, dim=1,
                                     n_layers=1)
 
         self.criterion_mse = nn.MSELoss()
@@ -206,17 +137,23 @@ class EncoderDisc(Encoder):
             if disc_mode:
                 x_enc.append(Variable(x.data, requires_grad=False))
 
-        # last fc for encoding
-        code = self.fc_enc(x).squeeze()
+        # mu and logvar
+        mu = self.fc_mu(x).squeeze()
+        logvar = self.fc_logvar(x).squeeze()
+
+        # reparameterize
+        code = self._reparameterize(mu, logvar)
+
+        import pdb; pdb.set_trace()
 
         # normalize code
-        code = self._normalize_code(code)
+        code = self._normalize(code)
 
         if noise and self.cfg.noise_radius > 0:
-            code = self._add_noise(code)
+            code = self._add_gaussian_noise_to(code)
 
         if save_grad_norm and code.requires_grad:
-            code.register_hook(self._store_grad_norm)
+            code.register_hook(self._grad_norm_saving_hook)
 
         if (not disc_mode) or (not self.cfg.with_attn):
             assert(len(code.size()) == 2)
@@ -286,3 +223,11 @@ class EncoderDisc(Encoder):
             mask = torch.zeros(x.size()).masked_fill_(zeros, float('-inf'))
             masks.append(Variable(mask, requires_grad=False).cuda()) # mask pads as 0s
         return masks
+
+    def _reparameterize(self, mu, logvar):
+        if self.training:
+            std = logvar.mul(0.5).exp_()
+            eps = Variable(std.data.new(std.size()).normal_())
+            return eps.mul(std).add_(mu)
+        else:
+            return mu

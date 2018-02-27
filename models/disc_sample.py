@@ -6,6 +6,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
+from models.base_module import BaseModule
 from nn.attention import MultiLinear4D, WordAttention, LayerAttention
 from nn.embedding import WordEmbedding
 from train.train_helper import ResultPackage
@@ -14,7 +15,7 @@ from utils.utils import to_gpu
 log = logging.getLogger('main')
 
 
-class SampleDiscriminator(nn.Module):
+class SampleDiscriminator(BaseModule):
     def __init__(self, cfg, vocab):
         super(SampleDiscriminator, self).__init__()
         # Sentence should be represented as a matrix : [max_len x step_size]

@@ -27,21 +27,13 @@ class ResultPackage(object):
         self.result.update(update_dict)
 
     def set_label(self, new_label):
-        self.lable = new_label
+        self.label = new_label
 
     def _print_line(self, char='-', row=1, length=130):
         for i in range(row):
             log.info(char * length)
 
-    def _print_info(self, sv):
-        self._print_line()
-        log.info("| Name : %s | Epoch : %d/%d | Batches : %d/%d |"
-                 % (sv.cfg.name, sv.epoch_step, sv.epoch_total,
-                    sv.batch_step, sv.batch_total))
-
-    def print_log(self, sv, info=True):
-        if info:
-            self._print_info(sv)
+    def print_log(self, sv):
         print_str = "| %s |" % self.label
         for key, value in self.result.items():
             print_str += " %s : %.8f |" % (key, value)
@@ -52,8 +44,9 @@ class ResultPackage(object):
             txt = "%s/%d_%s" % (self.label, i, key)
             writer.add_scalar(txt, value, sv.global_step)
 
-    def drop_log_and_events(self, sv, writer, log_info=True):
-        self.print_log(sv, log_info)
+    def drop_log_and_event(self, sv, writer, log_info=True):
+        sv.global_step
+        self.print_log(sv)
         self.write_event(sv, writer)
 
 

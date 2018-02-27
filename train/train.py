@@ -18,7 +18,7 @@ from train.train_helper import (ResultPackage, load_test_data,
                                 print_ae_tf_sents, print_ae_fr_sents,
                                 print_gen_sents, ids_to_sent_for_eval,
                                 halve_attns, print_attns)
-from train.supervisor import Supervisor
+from train.supervisor import TrainingSupervisor
 from utils.utils import set_random_seed, to_gpu
 
 log = logging.getLogger('main')
@@ -30,119 +30,130 @@ def train(net):
     set_random_seed(cfg)
     fixed_noise = net.gen.make_noise(cfg.eval_size) # for generator
     writer = SummaryWriter(cfg.log_dir)
-    sv = Supervisor(net)
+    sv = TrainingSupervisor(net)
+    sv.register_ref_batch_iterator(net.data_ae)
     test_sents = load_test_data(cfg)
 
-    while not sv.global_stop():
-        while not sv.epoch_stop():
+    while not sv.should_stop_training():
 
-            # train autoencoder
-            for i in range(cfg.niters_ae): # default: 1 (constant)
-                if sv.epoch_stop():
-                    break  # end of epoch
-                batch = net.data_ae.next()
+        # train autoencoder
+        for i in range(sv.niters_ae): # default: 1 (constant)
+            if sv.should_stop_training():
+                break  # end of epoch
+            batch = net.data_ae.next()
 
-                rp_ae_tf = train_ae(cfg, net, batch, 'tf')
-                net.optim_embed.step()
-                net.optim_enc.step()
-                net.optim_dec.step()
+            # Embedding
+            embed = net.embed.trainer(batch.src)
+            # Encoder
+            code = net.enc.trainer(embed)
+            # Regularizer
+            code_var = net.reg.trainer.with_var(code)
+            # Decoder
+            decoded = net.dec.trainer.teacher_forcing(code_var, batch)
 
-                # rp_ae_fr = train_ae(cfg, net, batch, 'fr')
-                # net.optim_embed.step()
-                # net.optim_enc.step()
-                # net.optim_dec.step()
+            # Gradient saving
+            code_var.register_hook(net.enc.save_ae_grad_norm_hook)
+            decoded.embed.register_hook(net.dec.save_ae_grad_norm_hook)
 
-                #train_exposure(cfg, net, batch)
-                # train_enc(cfg, net, batch)
-                #net.optim_dec.step()
-                sv.inc_batch_step()
+            # Train
+            rp_ae = train_ae(cfg, net, batch, decoded)
 
-            # train gan
-            for k in range(sv.gan_niter): # epc0=1, epc2=2, epc4=3, epc6=4
+        # train gan
+        for k in range(sv.niters_gan): # epc0=1, epc2=2, epc4=3, epc6=4
 
-                # train discriminator/critic (at a ratio of 5:1)
-                for i in range(cfg.niters_gan_d): # default: 5
-                    batch = net.data_gan.next()
+            # train discriminator/critic (at a ratio of 5:1)
+            for i in range(cfg.niters_gan_d): # default: 5
+                batch = net.data_gan.next()
 
-                    # train code discriminator
-                    code_real, code_fake = generate_codes(cfg, net, batch)
-                    rp_dc = train_disc_c(cfg, net, code_real, code_fake)
-                    #err_dc_total, err_dc_real, err_dc_fake = err_dc
-                    net.optim_enc.step()
-                    net.optim_disc_c.step()
+                # Code generation
+                embed = net.embed.trainer(batch.src)
+                code_real = net.enc.trainer(embed)
+                code_real_x = net.reg.trainer.without_var(code_real)
+                code_fake = net.gen.tester()
 
-                    # train sample discriminator
-                    code_fake_r = recon_code_fake(cfg, net, code_fake)
-                    rp_dc_r = train_disc_c(cfg, net, code_real, code_fake_r)
-                    net.optim_disc_c.step()
+                # weight clamping for WGAN
+                net.disc_c = net.disc_c.clamp_weights()
 
-                # train generator(with disc_c) / decoder(with disc_s)
-                for i in range(cfg.niters_gan_g): # default: 1
+                # code real
+                disc_real = net.disc_c.trainer(code_real_x)
+                disc_fake = net.disc_c.trainer(code_fake.detach())
 
-                    # train code generator
-                    rp_gen, code_fake = train_gen(cfg, net)
-                    net.optim_gen.step()
+                # Gradient scaling
+                code_real.register_hook(net.enc.scale_disc_grad_hook)
 
-                    # train sample generator
-                    rp_dec = train_gen_s(cfg, net, code_fake, net.vocab)
-                    net.optim_gen_s.step()
+                # Train
+                rp_dc = train_disc_c(cfg, net, disc_real, disc_fake)
 
-            if not sv.global_step % cfg.log_interval == 0:
-                continue
+            # train generator(with disc_c) / decoder(with disc_s)
+            for i in range(cfg.niters_gan_g): # default: 1
+                # embed = net.embed.trainer(batch.src)
+                # code_real = net.enc.trainer(embed)
+                # code_real_o = net.reg.trainer.with_var(code_real)
+                # disc_real = net.disc_c.trainer(code_real_o)
+                # rp_enc = train_enc(cfg, net, disc_real)
 
-            # exponentially decaying noise on autoencoder
-            # noise_raius = 0.2(default)
-            # noise_anneal = 0.995(default) NOTE: fix this!
-            # if sv.global_step % 200 == 0:
-            #     net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
+                # train code generator
+                code_fake = net.gen.trainer()
+                disc_fake = net.disc_c.trainer(code_fake) # NOTE batch norm should be on
+                rp_gen = train_gen(cfg, net, disc_fake)
 
-            rp_noise = ResultPackage('Autoencoder',
-                                     dict(Noise_radius=net.enc.noise_radius))
-            rp_noise.drop_log_and_events(sv, writer, False)
 
-            # Autoencoder
-            batch = net.data_eval.next()
-            tars, outs = eval_ae_tf(net, batch)
-            print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
-            tars, outs = eval_ae_fr(net, batch)
-            print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
+        if not sv.global_step % cfg.log_interval == 0:
+            continue
 
-            # dump results
+        # exponentially decaying noise on autoencoder
+        # noise_raius = 0.2(default)
+        # noise_anneal = 0.995(default) NOTE: fix this!
+        # if sv.global_step % 200 == 0:
+        #     net.enc.noise_radius = net.enc.noise_radius * cfg.noise_anneal
 
-            #print_ae_sents(net.vocab, tar)
-            rp_ae_tf.drop_log_and_events(sv, writer)
-            # rp_ae_fr.drop_log_and_events(sv, writer)
-            # Generator + Discriminator_c
-            ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
 
-            # dump results
-            rp_dc.update(dict(G_Loss=rp_gen.loss)) # NOTE : mismatch
-            rp_dc.update(dict(G_Pred=rp_gen.pred))
-            rp_dc.drop_log_and_events(sv, writer, False)
-            print_gen_sents(net.vocab, ids_fake_eval, 9)
+        # Autoencoder
+        sv.log_train_progress()
+        batch = net.data_eval.next()
 
-            # # Discriminator_s
-            # if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
-            #     rp_ds_loss.update(dict(G_Dec=#rp_dec.loss))
-            #     rp_ds_loss.drop_log_and_event#s(sv, writer)
-            #     rp_ds_pred.update(dict(G_Dec=#rp_dec.pred))
-            #     rp_ds_pred.drop_log_and_event#s(sv, writer, False)
-            #
-            #     a_real, a_fake = attns
-            #     ids_real, ids_fake = ids
-            #     ids_fake_r = ids_fake[len(ids_fake)//2:]
-            #     ids_fake_f = ids_fake[:len(ids_fake)//2]
-            #     a_fake_r, a_fake_f = halve_attns(a_fake)
-            #     print_attns(cfg, net.vocab,
-            #                 dict(Real=(ids_real, a_real),
-            #                      Fake_R=(ids_fake_r, a_fake_r),
-            #                      Fake_F=(ids_fake_f, a_fake_f)))
+        rp_ae.update(dict(Noise_radius=net.enc.noise_radius))
+        rp_ae.drop_log_and_event(sv, writer)
+        tars, outs = eval_ae_tf(net, batch)
+        print_ae_tf_sents(net.vocab, tars, outs, batch.len, cfg.log_nsample)
 
-            fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
-            rp_scores = evaluate_sents(test_sents, fake_sents)
-            rp_scores.drop_log_and_events(sv, writer, False)
+        tars, outs = eval_ae_fr(net, batch)
+        print_ae_fr_sents(net.vocab, tars, outs, cfg.log_nsample)
 
-            sv.save()
+        rp_dc.update(dict(G_Loss=rp_gen.loss)) # NOTE : mismatch
+        rp_dc.drop_log_and_event(sv, writer, False)
+        ids_fake_eval = eval_gen_dec(cfg, net, fixed_noise)
+        print_gen_sents(net.vocab, ids_fake_eval, 9)
 
-        # end of epoch ----------------------------
-        sv.inc_epoch_step()
+        # dump results
+
+        #print_ae_sents(net.vocab, tar)
+
+        # rp_ae_fr.drop_log_and_event(sv, writer)
+        # Generator + Discriminator_c
+
+        # dump results
+
+
+        # # Discriminator_s
+        # if cfg.with_attn and sv.epoch_step >= cfg.disc_s_hold:
+        #     rp_ds_loss.update(dict(G_Dec=#rp_dec.loss))
+        #     rp_ds_loss.drop_log_and_event#s(sv, writer)
+        #     rp_ds_pred.update(dict(G_Dec=#rp_dec.pred))
+        #     rp_ds_pred.drop_log_and_event#s(sv, writer, False)
+        #
+        #     a_real, a_fake = attns
+        #     ids_real, ids_fake = ids
+        #     ids_fake_r = ids_fake[len(ids_fake)//2:]
+        #     ids_fake_f = ids_fake[:len(ids_fake)//2]
+        #     a_fake_r, a_fake_f = halve_attns(a_fake)
+        #     print_attns(cfg, net.vocab,
+        #                 dict(Real=(ids_real, a_real),
+        #                      Fake_R=(ids_fake_r, a_fake_r),
+        #                      Fake_F=(ids_fake_f, a_fake_f)))
+
+        fake_sents = ids_to_sent_for_eval(net.vocab, ids_fake_eval)
+        rp_scores = evaluate_sents(test_sents, fake_sents)
+        rp_scores.drop_log_and_event(sv, writer, False)
+
+        sv.save()

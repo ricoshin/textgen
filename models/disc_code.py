@@ -6,13 +6,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+from models.base_module import BaseModule
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
 
-class CodeDiscriminator(nn.Module):
+class CodeDiscriminator(BaseModule):
     def __init__(self, cfg):
         super(CodeDiscriminator, self).__init__()
         # arguments default values
@@ -71,9 +72,9 @@ class CodeDiscriminator(nn.Module):
             except:
                 import pdb; pdb.set_trace()
         x_wgan = torch.mean(self.wgan_linear(x))
-        x_pred = Variable(x.data, requires_grad=True)
-        x_pred = F.sigmoid(self.pred_linear(x_pred))
-        return x_wgan, x_pred
+        # x_pred = Variable(x.data, requires_grad=True)
+        # x_pred = F.sigmoid(self.pred_linear(x_pred))
+        return x_wgan
 
     def _init_weights(self):
         init_std = 0.02
@@ -83,3 +84,15 @@ class CodeDiscriminator(nn.Module):
                 layer.bias.data.fill_(0)
             except:
                 pass
+
+    def clamp_weights(self):
+        # clamp parameters to a cube
+        for name, params in self.named_parameters():
+            if 'pred_linear' not in name:
+                params.data.clamp_(-self.cfg.gan_clamp, self.cfg.gan_clamp)
+                # WGAN [min,max] clamp (default:0.01)
+        return self
+
+    def backward_optim(self):
+        self.loss.backward()
+        self.optim

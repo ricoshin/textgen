@@ -15,7 +15,7 @@ log = logging.getLogger('main')
 if __name__ == '__main__':
     # Parsing arguments and set configs
     args = parser.parse_args()
-    cfg = Config(vars(args))
+    cfg = Config.init_from_parsed_args(args)
 
     # Set all the paths
     prepare_paths(cfg)
@@ -41,7 +41,7 @@ if __name__ == '__main__':
 
     # Build network
     net = Network(cfg, corpus, vocab, vocab_pos)
-
+    
     # Train
     if not cfg.test:
         train(net)

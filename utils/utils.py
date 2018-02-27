@@ -6,6 +6,8 @@ from time import time, strftime, gmtime
 
 import torch
 
+from models.cnn_architect import ConvnetType, ConvnetArchitect
+
 log = logging.getLogger('main')
 
 
@@ -47,9 +49,18 @@ class StopWatch(object):
 
 
 class Config(object):
-    def __init__(self, cfg=None):
-        if cfg is not None:
-            self.update(cfg)
+    def __init__(self, init=None):
+        if init is None:
+            return
+        self.update(init)
+
+    @classmethod
+    def init_from_parsed_args(cls, args):
+        cfg = cls(vars(args))
+        architect = ConvnetArchitect(cfg)
+        arch = architect.design_model_of(ConvnetType.ENCODER_ONLY)
+        cfg.update(dict(arch_cnn=Config(arch)))
+        return cfg
 
     def update(self, new_config):
         self.__dict__.update(new_config)
@@ -77,8 +88,6 @@ def set_logger(cfg):
 
 
     # setup file handler
-    if cfg.test == True:
-        cfg.log_path = cfg.testlog_filepath
     file_handler = logging.FileHandler(cfg.log_path)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(log_level)

@@ -2,11 +2,12 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
+from models.base_module import BaseModule
 from train.train_helper import ResultPackage
 from utils.utils import to_gpu
 
 
-class Generator(nn.Module):
+class Generator(BaseModule):
     def __init__(self, cfg):
         super(Generator, self).__init__()
         # arguments default values

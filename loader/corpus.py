@@ -211,6 +211,9 @@ class BatchIterator(object):
         self.__dataloader = dataloader
         self.__batch_iter = iter(self.__dataloader)
         self.__batch = None # initial value
+        self.__batch_step = 0
+        self.__epoch_step = 0
+        self.__global_step = 0
         self.__cuda = cuda
         self.__volatile = volatile
 
@@ -221,11 +224,31 @@ class BatchIterator(object):
     def batch(self):
         return self.__batch.variable(self.__volatile).cuda(self.__cuda)
 
+    @property
+    def batch_step(self):
+        return self.__batch_step
+
+    @property
+    def epoch_step(self):
+        return self.__epoch_step
+
+    @property
+    def global_step(self):
+        return self.__global_step
+
+    @property
+    def epoch_step(self):
+        return self.__epoch_step
+
     def reset(self):
         self.__batch_iter = iter(self.__dataloader)
+        self.__batch_step = 0
+        self.__epoch_step += 1
 
     def next(self):
         self.__batch = next(self.__batch_iter, None)
+        self.__batch_step += 1
+        self.__global_step += 1
         if self.__batch is None:
             self.reset()
             self.__batch = next(self.__batch_iter)

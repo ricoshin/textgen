@@ -3,12 +3,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from models.base_module import BaseModule
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
 
-class WordEmbedding(nn.Module):
+class WordEmbedding(BaseModule):
     def __init__(self, cfg, vocab):
         super(WordEmbedding, self).__init__()
         self.cfg = cfg
@@ -33,7 +34,6 @@ class WordEmbedding(nn.Module):
             self.requires_grad = True
 
         self.embed.weight.requires_grad = self.requires_grad
-
 
     def _init_weights(self):
         # unifrom initialization in the range of [-0.1, 0.1]

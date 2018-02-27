@@ -3,10 +3,11 @@ import torch.nn as nn
 from torch.autograd import Variable
 import torch.nn.functional as F
 
+from models.base_module import BaseModule
 from nn.sparsemax import Sparsemax
 
 
-class MultiLinear4D(nn.Module):
+class MultiLinear4D(BaseModule):
     def __init__(self, in_size, out_size, dim='', n_layers=2, bias=False,
                  activation=F.tanh, dropout=0.2):
         super(MultiLinear4D, self).__init__()
@@ -16,7 +17,7 @@ class MultiLinear4D(nn.Module):
         self.activation = activation
         ch = [in_size] * n_layers + [out_size]
         # multiple linear layers
-        self.layers = nn.ModuleList(
+        self.layers = BaseModuleList(
             [nn.Linear(ch[i], ch[i+1], bias=bias) for i in range(n_layers)])
         self.dropout = nn.Dropout(dropout)
 
@@ -40,7 +41,7 @@ class MultiLinear4D(nn.Module):
         return x
 
 
-class WordAttention(nn.Module):
+class WordAttention(BaseModule):
     def __init__(self, in_chann, in_width, out_size, n_attns, temp=1.,
                  last_act='softmax'):
         super(WordAttention, self).__init__()
@@ -98,7 +99,7 @@ class WordAttention(nn.Module):
 
         return x, weight
 
-class LayerAttention(nn.Module):
+class LayerAttention(BaseModule):
     def __init__(self, in_chann, n_layers, temp=1., last_act='softmax'):
         super(LayerAttention, self).__init__()
         # in : [bsz, n_mat, n_layers, 1]

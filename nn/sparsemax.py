@@ -4,7 +4,9 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.autograd import Variable
 
-class Sparsemax(nn.Module):
+from models.base_module import BaseModule
+
+class Sparsemax(BaseModule):
     def __init__(self, num_clusters, num_neurons_per_cluster):
         super(Sparsemax, self).__init__()
         self.num_clusters = num_clusters

@@ -47,7 +47,7 @@ parser.add_argument('--hidden_size', type=int, default=500,
                     help='number of hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.2,
+parser.add_argument('--noise_radius', type=float, default=0.0,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
@@ -64,8 +64,10 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_to_ae', type=float, default=-0.01,
+parser.add_argument('--gan_to_enc', type=float, default=1.0,
                     help='weight factor passing gradient from gan to encoder')
+parser.add_argument('--gan_to_dec', type=float, default=1.0,
+                    help='weight factor passing gradient from gan to decoder')
 parser.add_argument('--dropout', type=float, default=0.0,
                     help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--kernel_sizes', type=str, default='2,3,4',
