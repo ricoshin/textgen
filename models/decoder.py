@@ -1,4 +1,6 @@
 import logging
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -6,7 +8,7 @@ from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from models.base_module import BaseDecoder
-from train.train_helper import ResultPackage
+from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
@@ -18,6 +20,7 @@ class DecoderRNN(BaseDecoder):
         self.cfg = cfg
         self.embed = embed
         self.vocab = embed.vocab
+        self.result_packer = ResultPackerRNN(self)
 
         input_size_dec = cfg.word_embed_size + cfg.hidden_size
         self.decoder = nn.LSTM(input_size=input_size_dec,
@@ -56,9 +59,7 @@ class DecoderRNN(BaseDecoder):
         else:
             raise Exception("Unknown decoding mode!")
 
-        words_embed, words_id, words_prob, tags = decoded
-
-        return DecoderOutputsRNN(words_embed, words_id, words_prob, tags)
+        return decoded
 
     def _decode_tf(self, code, inputs, lengths):
         batch_size = inputs.size(0)
@@ -108,7 +109,7 @@ class DecoderRNN(BaseDecoder):
         tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 
-        return words_embed, words_id, words_prob, tags
+        return self.result_packer.new(words_embed, words_id, words_prob, tags)
 
     def _decode_fr(self, code, max_len):
         batch_size = code.size(0)
@@ -166,7 +167,7 @@ class DecoderRNN(BaseDecoder):
         words_id = torch.cat(all_words_id, 1)
         tags = torch.cat(all_tags, 1)
 
-        return words_embed, words_id, words_prob, tags
+        return self.result_packer.new(words_embed, words_id, words_prob, tags)
 
     def _init_weights(self):
         # unifrom initialization in the range of [-0.1, 0.1]
@@ -231,23 +232,77 @@ class DecoderRNN(BaseDecoder):
         return cos_sim # [bsz, (max_len,) vocab_size]
 
 
-class DecoderOutputsRNN(object):
-    def __init__(self, words_embed, words_id, words_prob, tags):
-        self.embed = words_embed
-        self.id = words_id
-        self.prob = words_prob
-        self.tag = tags
+class ResultPackerRNN(object):
+    def __init__(self, decoder):
+        self.cfg = decoder.cfg
+        self.vocab = decoder.vocab
 
-    def print_ae_tf_sents(vocab, target_ids, output_ids, lengths, nline=5):
-        coupled = list(zip(target_ids, output_ids, lengths))
-        # shuffle : to prevent always printing the longest ones first
-        np.random.shuffle(coupled)
-        print_line()
-        for i, (tar_ids, out_ids, length) in enumerate(coupled):
-            if i > nline - 1: break
-            log.info("[X] " + ids_to_sent(vocab, tar_ids, length=length))
-            log.info("[Y] " + ids_to_sent(vocab, out_ids, length=length))
-            print_line()
+    def new(self, embeds, ids, probs, tags):
+        return self.Package(self, embeds, ids, probs, tags)
+
+    class Package(object):
+        def __init__(self, packer, embeds, ids, probs, tags):
+            self.cfg = packer.cfg
+            self.vocab = packer.vocab
+            self._is_autoencoded = False
+
+            self.embed = embeds
+            self.id = ids.data.cpu().numpy()
+            self.prob = probs
+            self.tag = tags
+
+            self.id_tar = None
+            self.length = None
+
+        def set_autoencoder_target(self, batch):
+            self._is_autoencoded = True
+            id_tar = batch.tar.view(batch.src.size(0), -1)
+            self.id_tar = id_tar.data.cpu().numpy()
+            self.length = batch.len
+
+        def get_text(self, num_sample=None):
+            if num_sample is None:
+                num_sample = self.cfg.log_nsample
+            if self._is_autoencoded:
+                return self._get_autoencoded_n_text_samples(num_sample)
+            else:
+                return self._get_decoded_n_text_samples(num_sample)
+
+        def get_text_batch(self):
+            return self.vocab.ids2text_batch(self.id)
+
+        def _get_line(self, char='-', row=1, length=130):
+            out_str = ''
+            for i in range(row):
+                out_str += char * length
+            return out_str + '\n'
+
+        def _get_decoded_n_text_samples(self, num_sample):
+            ids_batch = self.vocab.ids2words_batch(self.id)
+            np.random.shuffle(ids_batch)
+            out_str = ''
+            for i, ids in enumerate(ids_batch):
+                out_str += self._get_line()
+                if i >= num_sample: break
+                out_str += ' '.join(ids) + '  \n'
+                # we need double space here for markdown linebreak
+            return out_str
+
+        def _get_autoencoded_n_text_samples(self, num_sample):
+            if self.id_tar is None:
+                raise Exception('call set_autoencoder_target(batch) first!')
+            ids_batch_x = self.vocab.ids2words_batch(self.id_tar)
+            ids_batch_y = self.vocab.ids2words_batch(self.id)
+            coupled = list(zip(ids_batch_x, ids_batch_y))
+            np.random.shuffle(coupled)
+            out_str = ''
+            for i, (ids_x, ids_y) in enumerate(coupled):
+                out_str += self._get_line()
+                if i >= num_sample: break
+                out_str += '[X]' + ' '.join(ids_x) + '  \n'
+                out_str += '[Y]' + ' '.join(ids_y) + '  \n'
+                # we need double space here for markdown linebreak
+            return out_str
 
 
 class DecoderCNN(BaseDecoder):

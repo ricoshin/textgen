@@ -19,15 +19,20 @@ class ConvnetArchitect(object):
        that will be finally removed when they're returned. """
     def __init__(self, cfg):
         self.cfg = cfg
-        # when "0" strides or filters, they will be automatically computed
+        # numbers for last layer will be automatically computed
         # NOTE : add to parser.py later!
-        self.s = "1-2-0"         # strides
-        self.f = "5-5-0"         # filters
-        self.c = "300-600-500"   # channels
+        strides = "1-2"
+        filters = "5-5"
+        channels = "300-600"
+
+        self.arch_s = [int(x) for x in strides.split('-')]
+        self.arch_f = [int(x) for x in filters.split('-')]
+        self.arch_c = [int(x) for x in channels.split('-')]
+
+        self._sanity_check()
 
     def design_model_of(self, convnet_type):
         self.convnet_type = convnet_type
-
         self._design_encoder()
         if convnet_type == ConvnetType.AUTOENCODER:
             self._design_decoder()
@@ -36,25 +41,32 @@ class ConvnetArchitect(object):
 
         return self._return_arch_attr_only()
 
+    def _sanity_check(self):
+        archs = list(self._return_arch_attr_only().values())
+        # check if all the lengths of arch atrributes are the same.
+        assert(all(len(archs[0]) == len(arch) for arch in archs[1:]))
+        # arch elements has to be non-zero
+        assert(all(all(num > 0 for num in arch) for arch in archs))
+
     def _design_encoder(self):
-        self.arch_s = [int(x) for x in self.s.split('-') if x is not '0']
-        self.arch_f = [int(x) for x in self.f.split('-') if x is not '0']
-        self.arch_c = [int(x) for x in self.c.split('-')]
+        # Number of convolution layer (including the last)
+        self.arch_n_conv = len(self.arch_c) + 1
 
-        self.arch_n_conv = len(self.arch_c)
-        assert(len(self.arch_s) == len(self.arch_f)) # both must have the same len
+        # Channels : add the first and the last dim
+        n_embed = self.cfg.word_embed_size
+        n_hidden = self.cfg.hidden_size
+        self.arch_c = [n_embed] + self.arch_c + [n_hidden]
 
-        self.arch_c = [self.cfg.word_embed_size] + self.arch_c # input c
+        # Widths
         self.arch_w = [self.cfg.max_len]
         for i in range(len(self.arch_f)):
             self.arch_w.append(self._next_w(
                 self.arch_w[i], self.arch_f[i], self.arch_s[i]))
 
-        if len(self.arch_s) == (len(self.arch_c) - 2):
-            # last layer (size dependant on the previous layer)
-            self.arch_f += [self.arch_w[-1]]
-            self.arch_s += [1]
-            self.arch_w += [1]
+        # Others (for the last layer)
+        self.arch_f += [self.arch_w[-1]]
+        self.arch_s += [1]
+        self.arch_w += [1]
 
         self._log_debug([self.arch_n_conv], "n_conv")
         self._log_debug(self.arch_f, "filters")
@@ -99,6 +111,7 @@ class ConvnetArchitect(object):
         return arch_attr
 
     def _next_w(self, in_size, f_size, s_size):
+        # Compute ext feature width after convolution operation
         # in:width, f:filter, s:stride
         next_size = (in_size - f_size) / s_size + 1
 
@@ -111,6 +124,7 @@ class ConvnetArchitect(object):
         return int(next_size)
 
     def _next_w_r(self, in_size, f_size, s_size):
+        # Compute next feature width after "de"-convolution operation
         next_size = (in_size - 1) * s_size + f_size
         return next_size
 

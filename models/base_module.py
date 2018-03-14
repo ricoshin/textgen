@@ -3,8 +3,11 @@ import logging
 import math
 
 import torch
+from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
+
+from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
@@ -65,23 +68,19 @@ class BaseAutoencoder(BaseModule):
                             "BaseEncoder or BaseDecoder instance!")
 
         gan_norm = torch.norm(grad, p=2, dim=1)
-        gan_norm = gan_norm.detach().data.mean() + self.eps
+        gan_norm = gan_norm.detach().data.mean()
 
         if gan_norm == .0:
-            log.warning("zero gan norm to %s!".format(m_type))
-            normed_grad = grad
-        else:
-            normed_grad = grad * self.grad_norm / gan_norm
+            gan_norm += + self.eps
+            log.warning("zero gan norm to %s!" % m_type)
 
+        normed_grad = grad * self.grad_norm / gan_norm
         normed_grad *= factor
         return normed_grad
 
-    def _add_gaussian_noise_to(self, code):
-        # gaussian noise
-        noise = torch.normal(means=torch.zeros(code.size()),
-                             std=self.noise_radius)
-        noise = to_gpu(self.cfg.cuda, Variable(noise))
-        return code + noise
+    def clip_grad_norm(self):
+        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+        return self
 
 class BaseEncoder(BaseAutoencoder):
     def __init__(self, cfg):
@@ -106,6 +105,16 @@ class BaseEncoder(BaseAutoencoder):
             self._is_add_noise = False # back to default
 
         return code
+
+    def _add_gaussian_noise_to(self, code):
+        # gaussian noise
+        noise = torch.normal(means=torch.zeros(code.size()),
+                             std=self.noise_radius)
+        noise = to_gpu(self.cfg.cuda, Variable(noise))
+        return code + noise
+
+    def decay_noise_radius(self):
+        self.noise_radius = self.noise_radius * self.cfg.noise_anneal
 
 
 class BaseDecoder(BaseAutoencoder):

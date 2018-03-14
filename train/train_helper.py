@@ -4,56 +4,29 @@ import os
 
 import torch
 from torch.autograd import Variable
+
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
 
 
-class ResultPackage(object):
-    # result manager
-    def __init__(self, label, result_dict):
-        if label is not None:
-            self.label = label
-        self.result = result_dict
-        self.sv = None
-        self.writer = None
-        self.update(result_dict)
-
-    def __repr__(self):
-        return self.__dict__.__repr__()
-
-    def update(self, update_dict):
-        self.__dict__.update(update_dict)
-        self.result.update(update_dict)
-
-    def set_label(self, new_label):
-        self.label = new_label
-
-    def _print_line(self, char='-', row=1, length=130):
-        for i in range(row):
-            log.info(char * length)
-
-    def print_log(self, sv):
-        print_str = "| %s |" % self.label
-        for key, value in self.result.items():
-            print_str += " %s : %.8f |" % (key, value)
-        log.info(print_str)
-
-    def write_event(self, sv, writer):
-        for i, (key, value) in enumerate(self.result.items()):
-            txt = "%s/%d_%s" % (self.label, i, key)
-            writer.add_scalar(txt, value, sv.global_step)
-
-    def drop_log_and_event(self, sv, writer, log_info=True):
-        sv.global_step
-        self.print_log(sv)
-        self.write_event(sv, writer)
-
-
-
-def print_line(char='-', row=1, length=130):
-    for i in range(row):
-        log.info(char * length)
+def mask_output_target(output, target, ntokens):
+    # Create sentence length mask over padding
+    target_mask = target.gt(0) # greater than 0
+    masked_target = target.masked_select(target_mask)
+    # target_mask.size(0) = batch_size*max_len
+    # output_mask.size() : batch_size*max_len x ntokens
+    target_mask = target_mask.unsqueeze(1)
+    output_mask = target_mask.expand(target_mask.size(0), ntokens)
+    # flattened_output.size(): batch_size*max_len x ntokens
+    flattened_output = output.view(-1, ntokens)
+    # flattened_output.masked_select(output_mask).size()
+    #  num_of_masked_words(in batch, excluding <pad>)*ntokens
+    masked_output = flattened_output.masked_select(output_mask)
+    masked_output = masked_output.view(-1, ntokens)
+    # masked_output.size() : num_of_masked_words x ntokens
+    # masked_target : num_of_masked_words
+    return masked_output, masked_target
 
 def ids_to_sent(vocab, ids, length=None, no_pad=True):
     if length is None:

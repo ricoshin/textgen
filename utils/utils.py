@@ -69,13 +69,35 @@ class Config(object):
         return self.__dict__.__repr__()
 
 
+class MyFormatter(logging.Formatter):
+    info_fmt = "%(message)s"
+    else_fmt = '[%(levelname)s] %(message)s'
+
+    def __init__(self, fmt="%(message)s"):
+        logging.Formatter.__init__(self, fmt)
+
+    def format(self, record):
+        # Save the original format configured by the user
+        # when the logger formatter was instantiated
+        format_orig = self._fmt
+        # Replace the original format with one customized by logging level
+        if record.levelno == logging.INFO:
+            self._fmt = MyFormatter.info_fmt
+        else:
+            self._fmt = MyFormatter.else_fmt
+        # Call the original formatter class to do the grunt work
+        result = logging.Formatter.format(self, record)
+        # Restore the original format configured by the user
+        self._fmt = format_orig
+
+        return result
+
+
 def set_logger(cfg):
     #log_fmt = '%(asctime)s %(levelname)s %(message)s'
     #date_fmt = '%d/%m/%Y %H:%M:%S'
     #formatter = logging.Formatter(log_fmt, datefmt=date_fmt)
-
-    log_fmt = '[%(levelname)s] %(message)s'
-    formatter = logging.Formatter(log_fmt)
+    formatter = MyFormatter()
 
     # set log level
     levels = dict(debug=logging.DEBUG,

@@ -2,8 +2,9 @@ import numpy as np
 import logging
 import os
 
-from loader.multi_proc import CorpusMultiProcessor, CorpusTagMultiProcessor
-from loader.vocab import Vocab, GloveMultiProcessor
+from loader.multi_proc import (CorpusMultiProcessor, CorpusTagMultiProcessor,
+                               GloveMultiProcessor)
+from loader.vocab import Vocab
 from utils.utils import StopWatch
 
 log = logging.getLogger('main')
@@ -41,7 +42,7 @@ def process_main_corpus(cfg, tokenizer):
         vocab = Vocab(counter=counter, max_size=cfg.vocab_size,
                       specials=['<pad>', '<sos>', '<eos>', '<unk>'])
         vocab.generate_embedding(embed_dim=cfg.word_embed_size, init_embed=word2vec)
-        sents = vocab.numericalize_sents(sents)
+        sents = vocab.words2ids_batch(sents)
 
         with StopWatch('Saving text (Main corpus)'):
             np.savetxt(cfg.corpus_data_path, sents, fmt="%s")
@@ -72,7 +73,7 @@ def process_pos_corpus(cfg, tokenizer):
 
         # make vocab
         tags_vocab = Vocab(counter=tag_counter, specials=['<eos>'])
-        tags_ids = tags_vocab.numericalize_sents(tags)
+        tags_ids = tags_vocab.words2ids_batch(tags)
 
         with StopWatch('Saving text (POS tagging corpus)'):
             np.savetxt(cfg.pos_data_path, tags_ids, fmt="%s")
@@ -124,13 +125,13 @@ def process_corpus_tag(cfg):
                             specials=['<pad>', '<sos>', '<eos>', '<unk>'])
         token_vocab.generate_embedding(embed_dim=cfg.word_embed_size,
                                        init_embed=word2vec)
-        token_ids = token_vocab.numericalize_sents(tokens)
+        token_ids = token_vocab.words2ids_batch(tokens)
         cfg.vocab_size = len(token_vocab)
 
         # build tag vocabulary & convert tags to ids
         tag_vocab = Vocab(counter=tag_cnt, specials=['<pad>', '<sos>', '<eos>'])
         # tag_vocab.generate_embedding(embed_dim=cfg.tag_embed_size)
-        tags_ids = tag_vocab.numericalize_sents(tags)
+        tags_ids = tag_vocab.words2ids_batch(tags)
 
         with StopWatch('Saving text (Main corpus)'):
             np.savetxt(cfg.corpus_data_path, token_ids, fmt="%s")
@@ -163,12 +164,12 @@ def process_pos_corpus_with_main_vocab(cfg, main_vocab):
         log.info('Start preprocessing data and building vocabulary!')
         sent_proc = CorpusMultiProcessor(file_path=cfg.pos_sent_path)
         sents, _ = sent_proc.process()
-        sents_ids = main_vocab.numericalize_sents(sents)
+        sents_ids = main_vocab.words2ids_batch(sents)
 
         tag_proc = CorpusMultiProcessor(file_path=cfg.pos_tag_path)
         tags, tag_counter = tag_proc.process()
         tags_vocab = Vocab(counter=tag_counter, specials=['<eos>'])
-        tags_ids = tags_vocab.numericalize_sents(tags)
+        tags_ids = tags_vocab.words2ids_batch(tags)
 
         with StopWatch('Saving text (POS tagging corpus)'):
             np.savetxt(cfg.pos_sent_data_path, sents_ids, fmt="%s")

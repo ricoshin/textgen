@@ -285,3 +285,49 @@ class CorpusTagMultiProcessor(LargeFileMultiProcessor):
 
         results = [token_list, tag_list, token_cnt, tag_cnt]
         return results
+        
+
+class GloveMultiProcessor(LargeFileMultiProcessor):
+    def __init__(self, glove_dir, vector_size, num_process=None):
+        glove_files = {
+            50: 'glove.6B.50d.txt',
+            100: 'glove.6B.100d.txt',
+            200: 'glove.6B.200d.txt',
+            300: 'glove.840B.300d.txt',
+        }
+        file_path = os.path.join(glove_dir, glove_files[vector_size])
+        self.vector_size = vector_size # may not be used
+        super(GloveMultiProcessor, self).__init__(file_path, num_process)
+
+    def process(self):
+        results = super(GloveMultiProcessor, self).process()
+        log.info('\n' * (self.num_process - 1)) # to prevent dirty print
+
+        word2vec = dict()
+        log.info('Merging the results from multi-processes...')
+        for i in tqdm(range(len(results)), total=len(results)):
+            word2vec.update(results[i])
+        return word2vec
+
+    def _process_chunk(self, chunk):
+        i, start, end = chunk
+        chunk_size = end - start
+        word2vec = dict()
+
+        def process_line(line):
+            split_line = line.strip().split()
+            word = ' '.join(split_line[:-self.vector_size])
+            vector = [float(x) for x in split_line[-self.vector_size:]]
+            word2vec[word] = vector
+
+        with open(self.file_path, 'r') as f:
+            f.seek(start)
+            # process multiple chunks simultaneously with progress bar
+            text = '[Process #%2d] ' % i
+            with tqdm(total=chunk_size, desc=text, position=i) as pbar:
+                while f.tell() < end:
+                    curr = f.tell()
+                    line = f.readline()
+                    pbar.update(f.tell() - curr)
+                    process_line(line)
+        return word2vec

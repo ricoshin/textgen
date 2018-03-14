@@ -7,7 +7,7 @@ import re
 import math
 import copy
 
-from train.train_helper import ResultPackage
+from utils.writer import ResultWriter
 
 """
 Below codes are originally from TextVAE, multiwords branch, evaluate.py
@@ -189,7 +189,7 @@ def evaluate_sents(reference, predictions):
             scores[k] += metrics[k](pred, [ref])
     for k in metrics:
         scores[k] = 100.0 * scores[k] / total
-    return ResultPackage('Evaluation', scores)
+    return ResultWriter('Evaluation', scores)
 
 # references : list[string]. for example, ["he is a boy", "she went home"]
 # predictions : list[string]. for example, ["he is a boy", "she went home"]

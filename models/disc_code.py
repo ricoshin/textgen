@@ -7,7 +7,7 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 
 from models.base_module import BaseModule
-from train.train_helper import ResultPackage
+from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
@@ -65,6 +65,13 @@ class CodeDiscriminator(BaseModule):
 
         self._init_weights()
 
+    # override
+    @property
+    def tester(self, zero_grad=True):
+        if zero_grad:
+            self.zero_grad()
+        return self.train(True) # turn on bath norm!
+
     def forward(self, x):
         for i, layer in enumerate(self.layers):
             try:
@@ -87,12 +94,16 @@ class CodeDiscriminator(BaseModule):
 
     def clamp_weights(self):
         # clamp parameters to a cube
-        for name, params in self.named_parameters():
-            if 'pred_linear' not in name:
-                params.data.clamp_(-self.cfg.gan_clamp, self.cfg.gan_clamp)
-                # WGAN [min,max] clamp (default:0.01)
+        check_clamped = False
+        from copy import deepcopy
+        for name, param in self.named_parameters():
+            if 'pred_linear' in name:
+                continue
+            param_copy = deepcopy(param)
+            param.data.clamp_(-self.cfg.gan_clamp, self.cfg.gan_clamp)
+            if not param_copy.equal(param):
+                check_clamped = True
+            # WGAN [min,max] clamp (default:0.01)
+        if not check_clamped:
+            log.info('no clamping')
         return self
-
-    def backward_optim(self):
-        self.loss.backward()
-        self.optim

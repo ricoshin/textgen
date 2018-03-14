@@ -18,7 +18,7 @@ parser.add_argument('--data_name', type=str, default='snli',
                     choices=['snli','books', 'pos'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')
-parser.add_argument('--out_dir', type=str, default='out',
+parser.add_argument('--out_dir', type=str, default='out2',
                     help='location of output files')
 parser.add_argument('--name', type=str, required=True)
 #parser.add_argument('--kenlm_path', type=str, default='../Data/kenlm',
@@ -43,11 +43,11 @@ parser.add_argument('--word_embed_size', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--tag_embed_size', type=int, default=100,
                     help='size of word embeddings')
-parser.add_argument('--hidden_size', type=int, default=500,
+parser.add_argument('--hidden_size', type=int, default=300,
                     help='number of hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.0,
+parser.add_argument('--noise_radius', type=float, default=0.2,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
@@ -96,15 +96,15 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--eval_size', type=int, default=100, metavar='N',
+parser.add_argument('--eval_size', type=int, default=256, metavar='N',
                     help='batch size during evaluation')
-parser.add_argument('--niters_ae', type=int, default=1,
+parser.add_argument('--niter_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')
-parser.add_argument('--niters_gan_d', type=int, default=5,
+parser.add_argument('--niter_gan_d', type=int, default=5,
                     help='number of discriminator iterations in training')
-parser.add_argument('--niters_gan_g', type=int, default=1,
+parser.add_argument('--niter_gan_g', type=int, default=1,
                     help='number of generator iterations in training')
-parser.add_argument('--niters_gan_schedule', type=str, default='2-4-6',
+parser.add_argument('--niter_gan_schedule', type=str, default='2-4-6',
                     help='epoch counts to increase number of GAN training '
                          ' iterations (increment by 1 each time)')
 parser.add_argument('--lr_ae', type=float, default=1,

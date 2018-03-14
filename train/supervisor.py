@@ -1,130 +1,157 @@
+from contextlib import contextmanager
 import json
 import logging
+import math
 from os import path, listdir
 from tqdm import tqdm
 
 import torch
 
-from loader.corpus import BatchIterator
-
 log = logging.getLogger('main')
 
+
 class TrainingSupervisor(object):
-    def __init__(self, net):
+    def __init__(self, net, result_writer):
         self.net = net
         self.cfg = net.cfg
+        self.result = result_writer
 
-        # all steps should start from 0
-        self.epoch_step = 0
+        # NOTE : Fix later!
+        interval_train = 500
+        interval_eval = 500
+
+        self.interval_func_train = {
+            self._log_scalar_and_text: interval_train,
+            self._save_scalar_and_text: interval_train,
+            #self._save_data_and_module: interval_train,
+            }
+
+        self.interval_func_eval = {
+            self._log_scalar_and_text: interval_eval,
+            self._save_scalar_and_text: interval_eval,
+            self._save_data_and_module: interval_eval,
+            }
+
+        self.interval_func_global = {
+            self._save_embedding: interval_eval,
+        }
+
+        self._gan_schedule = self._init_gan_schedule()
+
         self.global_step = 0
-        self.epoch_total = self.cfg.epochs
+        self.global_maxstep = math.ceil(  # a bit dirty
+            (len(net.data_train)*net.cfg.epochs) / net.cfg.niter_ae)
+        self.global_step_fname = path.join(self.cfg.log_dir, 'step.json')
 
-        self.niters_ae = self.cfg.niters_ae
-        self.gan_schedule = self._init_gan_schedule()
-        self.niters_gan = self.gan_schedule[0]
-        self.step_fname = path.join(self.cfg.log_dir, 'schedule.json')
+        self._progress_bar = tqdm(initial=self.global_step,
+                                  total=self.global_maxstep)
 
-        self.load_if_exists()
+        self._load_snapshot_if_available()
+
+    def __del__(self):
+        self._progress_bar.close()
+
+    @contextmanager
+    def training_context(self):
+        yield  # training procedure
+        for function, step in self.interval_func_train.items():
+            if self.global_step % step == 0: function()
+
+    @contextmanager
+    def evaluation_context(self):
+        yield  # testing procedure
+        for function, step in self.interval_func_eval.items():
+            if self.global_step % step == 0: function()
 
     @property
-    def ref_batch_iterator(self):
-        if not hasattr(self, '_ref_batch_iterator'):
-            raise Exception("You must call TrainingSupervisor."
-                            "register_ref_batch_iterator() first!")
-        return self._ref_batch_iterator
+    def niter_ae(self):
+        return self.cfg.niter_ae  # constant
 
-    def register_ref_batch_iterator(self, batch_iterator):
-        if not isinstance(batch_iterator, BatchIterator):
-            raise Exception("Reference batch iterator has to be "
-                            "an instance of BatchIterator!")
-        self._ref_batch_iterator = batch_iterator
-        self.batch_total = len(batch_iterator)
-        self.global_total = self.cfg.epochs * len(batch_iterator)
-        self.progress = tqdm(initial=self.global_step,
-                             total=self.global_total)
-        self.update_steps_according_to_ref_batch_iterator()
-
-    def log_train_progress(self):
-        self._print_line()
-        log.info("| Name : %s | Epoch : %d/%d | Batches : %d/%d |"
-                 % (self.cfg.name, self.epoch_step, self.epoch_total,
-                    self.batch_step, self.batch_total))
-
-    def _print_line(self, char='-', row=1, length=130):
-        for i in range(row):
-            log.info(char * length)
-
-    def should_stop_training(self):
-        self.update_steps_according_to_ref_batch_iterator()
-        iterator = self.ref_batch_iterator
-        return iterator.epoch_step >= self.epoch_total
-
-    def update_steps_according_to_ref_batch_iterator(self):
-        inc = self.ref_batch_iterator.global_step - self.global_step
-        self.batch_step = self.ref_batch_iterator.batch_step
-        self.epoch_step = self.ref_batch_iterator.epoch_step
-        self.global_step = self.ref_batch_iterator.global_step
-        self.progress.update(inc)
-        self._update_gan_schedule()
-
-    def increase_epoch_step(self):
-        log.debug("Epoch %d stop! batch: %d"
-                   % (self.epoch_step, self.batch_step))
-        self.batch_step = 0
-        self.epoch_step += 1
-        self._update_gan_schedule  # at epoch [2, 4, 6]
-
-    def save(self):
-        self._save_step()
-        self.net.save_modules()
-        log.info("Model saved.")
-
-    def load_if_exists(self):
-        log_dir = listdir(self.cfg.log_dir)
-        if (not any(fname.endswith('.ckpt') for fname in log_dir) or
-            not (path.exists(self.step_fname))):
-            log.info("Can't find {} and model.ckpt files. "
-                     "Training begins from the scratch!"
-                     .format(self.step_fname))
+    @property
+    def niter_gan(self):
+        if self.net.data_ae.step.epoch >= len(self._gan_schedule):
+            return 0  # for the last epoch
         else:
-            log.info("Loading model from : %s" % (self.step_fname))
-            self._load_step()
+            return self._gan_schedule[self.net.data_ae.step.epoch]
+
+    def is_end_of_training(self):
+        for function, step in self.interval_func_global.items():
+            if self.global_step % step == 0: function()
+        self.global_step += 1
+        self._update_progress_bar()
+        return self.global_step > self.global_maxstep
+
+    def is_evaluation(self):
+        return any([self.global_step % step == 0
+            for step in self.interval_func_eval.values()])
+
+    def _update_progress_bar(self):
+        diff = self.global_step - self._progress_bar.n
+        self._progress_bar.update(diff)
+
+    def _log_scalar_and_text(self):
+        self._log_train_progress()
+        self.result.log_scalar_text()
+
+    def _save_scalar_and_text(self):
+        self.result.save_scalar(self.global_step)
+        self.result.save_text(self.global_step)
+        self.result.initialize_scalar_text()
+
+    def _save_embedding(self):
+        self.result.save_embedding(self.global_step)
+        self.result.initialize_embedding()
+
+    def _save_data_and_module(self):
+        self._save_global_step()
+        self.net.save_batch_schedulers()
+        self.net.save_modules()
+        #log.debug("Model saved.")
+
+    def _load_snapshot_if_available(self):
+        log_dir = listdir(self.cfg.log_dir)
+        #import pdb; pdb.set_trace()
+        if not any(fname.endswith(('.ckpt', '.pickle')) for fname in log_dir):
+            log.info("Can't find model.ckpt files. "
+                     "Training begins from the scratch!")
+        else:
+            self._load_global_step()
+            self.net.load_batch_schedulers()
             self.net.load_modules()
-            self._update_gan_schedule()
 
-    def _save_step(self):
-        with open(self.step_fname, 'w') as f:
-            dump_dict = dict(global_step=self.global_step,
-                             epoch_step=self.epoch_step,
-                             batch_step=self.batch_step)
-            json.dump(dump_dict, f, sort_keys=True, indent=4)
+    def _save_global_step(self):
+        with open(self.global_step_fname, 'w') as f:
+            dump_dict = dict(
+                global_step=self.global_step,
+                global_maxstep=self.global_maxstep,
+                )
+            json.dump(dump_dict, f, indent=4)
 
-    def _load_step(self):
-        with open(self.step_fname, 'r') as f:
+    def _load_global_step(self):
+        with open(self.global_step_fname, 'r') as f:
             load_dict = json.load(f)
         log.info(load_dict)
         self.global_step = load_dict['global_step']
-        self.epoch_step = load_dict['epoch_step']
-        self.batch_step = load_dict['batch_step']
+        self.global_maxstep = load_dict['global_maxstep']
+
+    def _log_train_progress(self):
+        #self._print_line()
+        global_step = "Global step: %d/%d" % (
+            self.global_step, self.global_maxstep)
+        log.info("| %s | %s | %s |\n" % (
+            self.cfg.name, self.net.data_ae.step, global_step))
 
     def _init_gan_schedule(self):
-        if self.cfg.niters_gan_schedule != "": # 2-4-6
-            gan_schedule = self.cfg.niters_gan_schedule.split("-")
+        if self.cfg.niter_gan_schedule != "": # 2-4-6
+            gan_schedule = self.cfg.niter_gan_schedule.split("-")
             gan_schedule =  [int(x) for x in gan_schedule]
             # for example: gan_schedule = [2, 4, 6]
         else:
             gan_schedule = []
-        niters_gan = 1
+        niter_gan = 1
         gan_schedule_list = []
-        for i in range(1, self.cfg.epochs+1):
+        for i in range(self.cfg.epochs):
             if i in gan_schedule:
-                niters_gan += 1
-            gan_schedule_list.append(niters_gan)
+                niter_gan += 1
+            gan_schedule_list.append(niter_gan)
         return gan_schedule_list
-
-    def _update_gan_schedule(self):
-        self.gan_iter = self.gan_schedule[self.epoch_step-1] # starts with 1
-        # if self.gan_iter > self.gan_schedule[self.epoch_step-2]:
-        #     log.info("GAN training loop schedule increased to : {}"
-        #              "".format(self.niters_gan))
-        # NOTE : make this to be called only when epoch is increased

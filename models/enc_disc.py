@@ -8,7 +8,7 @@ import torch.nn.functional as F
 
 from nn.attention import MultiLinear4D, WordAttention, LayerAttention
 from nn.embedding import WordEmbedding
-from train.train_helper import ResultPackage
+from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
 from models.base_module import BaseAutoencoder

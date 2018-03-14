@@ -5,9 +5,11 @@ from os import path
 import torch
 import torch.optim as optim
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 
-from loader.corpus import BatchingDataset, BatchingPOSDataset, BatchIterator
+from loader.data import (BatchCollator, POSBatchCollator, DataScheduler,
+                         MyDataLoader)
+
 from models.encoder import EncoderRNN, EncoderCNN, CodeSmoothingRegularizer
 from models.enc_disc import EncoderDiscModeWrapper, EncoderDisc
 from models.decoder import DecoderRNN, DecoderCNN
@@ -20,6 +22,13 @@ log = logging.getLogger('main')
 
 
 class Network(object):
+    """Instances of specific classes set as attributes in this classes
+    will automatically be updated to predefined dictionaries as below:
+
+    loader.corpus DataScheduler -> self._batch_schedulers
+    torch.nn.Module -> self._modules
+
+    """
     def __init__(self, cfg, corpus, vocab, vocab_pos=None):
         self.cfg = cfg
         self.corpus = corpus
@@ -28,15 +37,22 @@ class Network(object):
         self.ntokens = len(vocab)
 
         self._modules = OrderedDict()
+        self._batch_schedulers = OrderedDict()
+
         self._build_dataset()
         self._build_network()
         self._build_optimizer()
 
     def __setattr__(self, name, value):
         object.__setattr__(self, name, value)
+
         if isinstance(value, nn.Module):
-            self._check_module_dict_init()
+            self._check_init_by_name('_modules')
             self._modules[name] = value
+
+        if isinstance(value, DataScheduler):
+            self._check_init_by_name('_batch_schedulers')
+            self._batch_schedulers[name] = value
 
     def _build_dataset(self):
         cfg = self.cfg
@@ -45,17 +61,20 @@ class Network(object):
         vocab_pos = self.vocab_pos
 
         if cfg.pos_tag:
-            batching_dataset = BatchingPOSDataset(cfg, vocab, vocab_pos)
+            collator = POSBatchCollator(cfg, vocab, vocab_pos)
         else:
-            batching_dataset = BatchingDataset(cfg, vocab)
+            collator = BatchCollator(cfg, vocab)
 
-        data_loader = DataLoader(corpus, cfg.batch_size, shuffle=True,
-                                 num_workers=0, collate_fn=batching_dataset,
-                                 drop_last=True, pin_memory=True)
+        self.data_train = MyDataLoader(corpus, cfg.batch_size, shuffle=True,
+                                       num_workers=0, collate_fn=collator,
+                                       drop_last=True, pin_memory=True)
+        self.data_eval = MyDataLoader(corpus, cfg.eval_size, shuffle=True,
+                                      num_workers=0, collate_fn=collator,
+                                      drop_last=True, pin_memory=True)
 
-        self.data_ae = BatchIterator(data_loader, cfg.cuda)
-        self.data_gan = BatchIterator(data_loader, cfg.cuda)
-        self.data_eval = BatchIterator(data_loader, cfg.cuda, volatile=True)
+        self.data_ae = DataScheduler(cfg, self.data_train)
+        self.data_gan = DataScheduler(cfg, self.data_train)
+        self.data_eval = DataScheduler(cfg, self.data_eval, volatile=True)
         #self.test_data_ae = BatchIterator(dataloder_ae_test)
 
     def _build_network(self):
@@ -85,12 +104,10 @@ class Network(object):
         self.optim_embed = optim_ae(self.embed)
         self.optim_enc = optim_ae(self.enc)
         self.optim_dec = optim_ae(self.dec)
-        self.optim_reg = optim_ae(self.reg)
-        self.optim_mu = optim_ae(self.reg.fc_mu)
-        self.optim_logvar = optim_gen(self.reg.fc_logvar)
+        self.optim_reg_ae = optim_ae(self.reg)
+        self.optim_reg_gen = optim_gen(self.reg)
         self.optim_gen_s = optim_gen(self.dec)
         self.optim_gen_c = optim_gen(self.gen)
-
         self.optim_disc_c = optim_disc(self.disc_c)
 
     def _print_modules_info(self):
@@ -102,24 +119,51 @@ class Network(object):
             module = module.cuda()
 
     def registered_modules(self):
-        self._check_module_dict_init()
+        self._check_init_by_name('_modules')
         for name, module in self._modules.items():
             yield name, module
 
+    def registered_batch_schedulers(self):
+        self._check_init_by_name('_batch_schedulers')
+        for name, module in self._batch_schedulers.items():
+            yield name, module
+
     def save_modules(self):
-        self._check_module_dict_init()
+        self._check_init_by_name('_modules')
         for name, module in self.registered_modules():
             fname = path.join(self.cfg.log_dir, name + '.ckpt')
             with open(fname, 'wb') as f:
                 torch.save(module.state_dict(), f)
 
     def load_modules(self):
-        self._check_module_dict_init()
+        self._check_init_by_name('_modules')
         for name, module in self.registered_modules():
             fname = path.join(self.cfg.log_dir, name + '.ckpt')
             module.load_state_dict(torch.load(fname))
+            log.info('Module has been loaded from : %s' % fname)
 
-    def _check_module_dict_init(self):
-        if not '_modules' in self.__dict__:
+    def save_batch_schedulers(self):
+        self._check_init_by_name('_batch_schedulers')
+        for name, scheduler in self.registered_batch_schedulers():
+            fname = path.join(self.cfg.log_dir, name + '.pickle')
+            scheduler.save_as_pickle(fname)
+
+    def load_batch_schedulers(self):
+        self._check_init_by_name('_batch_schedulers')
+        for name, scheduler in self.registered_batch_schedulers():
+            fname = path.join(self.cfg.log_dir, name + '.pickle')
+            scheduler.load_from_pickle(fname)
+            log.info('BatchIterator has been loaded from : %s' % fname)
+
+    def set_modules_train_mode(self, train_mode):
+        self._check_init_by_name('_modules')
+        for name, module in self.registered_modules():
+            if train_mode:
+                module = module.trainer
+            else:
+                module = module.tester
+
+    def _check_init_by_name(self, name):
+        if not name in self.__dict__:
             raise AttributeError(
                 "Cannot assign modules before Network.__init__() call")

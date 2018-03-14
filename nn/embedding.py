@@ -72,3 +72,7 @@ class WordEmbedding(BaseModule):
         embeddings = torch.mm(id_onehots, self.embed.weight)
         embeddings = embeddings.view(-1, max_len, word_embed_size)
         return embeddings
+
+    def clip_grad_norm(self):
+        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+        return self

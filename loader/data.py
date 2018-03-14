@@ -1,11 +1,16 @@
+from copy import deepcopy
+import collections
 import linecache
 import logging
 import multiprocessing as mp
 import numpy as np
+import pickle
+from tqdm import tqdm
 
 import torch
 from torch.autograd import Variable
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+from torch.utils.data.dataloader import DataLoaderIter
 
 from loader.multi_proc import LargeFileMultiProcessor, LineCounter
 from utils.utils import to_gpu
@@ -47,35 +52,23 @@ class CorpusPOSDataset(Dataset):
 
 class Batch(object):
     def __init__(self, source, target, length):
-        self.__src = source
-        self.__tar = target
-        self.__len = length
-
-    @property
-    def src(self):
-        return self.__src
-
-    @property
-    def tar(self):
-        return self.__tar
-
-    @property
-    def len(self):
-        return self.__len
+        self.src = source
+        self.tar = target
+        self.len = length
 
     def variable(self, volatile=False):
-        src = Variable(self.__src, volatile=volatile)
-        tar = Variable(self.__tar, volatile=volatile)
-        return Batch(src, tar, self.__len)
+        src = Variable(self.src, volatile=volatile)
+        tar = Variable(self.tar, volatile=volatile)
+        return Batch(src, tar, self.len)
 
     def cuda(self, cuda=True):
         if cuda:
-            src = self.__src.cuda()
-            tar = self.__tar.cuda()
+            src = self.src.cuda()
+            tar = self.tar.cuda()
         else:
-            src = self.__src
-            tar = self.__tar
-        return Batch(src, tar, self.__len)
+            src = self.src
+            tar = self.tar
+        return Batch(src, tar, self.len)
 
 
 class BatchTag(Batch):
@@ -111,7 +104,7 @@ class BatchTag(Batch):
         return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
 
 
-class BatchingDataset(object):
+class BatchCollator(object):
     def __init__(self, cfg, vocab, gpu=False):
         self.cfg = cfg
         self.gpu = gpu
@@ -156,9 +149,9 @@ class BatchingDataset(object):
         return list(items), list(lengths)
 
 
-class BatchingPOSDataset(BatchingDataset):
+class POSBatchCollator(BatchCollator):
     def __init__(self, cfg, vocab, vocab_pos, gpu=False):
-        super(BatchingPOSDataset, self).__init__(cfg, vocab, gpu)
+        super(POSBatchCollator, self).__init__(cfg, vocab, gpu)
         self.vocab_pos = vocab_pos
 
     def process(self, batch):
@@ -206,50 +199,123 @@ class BatchingPOSDataset(BatchingDataset):
         return BatchTag(source, target, lengths, source_tag, target_tag)
 
 
-class BatchIterator(object):
-    def __init__(self, dataloader, cuda, volatile=False):
-        self.__dataloader = dataloader
-        self.__batch_iter = iter(self.__dataloader)
-        self.__batch = None # initial value
-        self.__batch_step = 0
-        self.__epoch_step = 0
-        self.__global_step = 0
-        self.__cuda = cuda
-        self.__volatile = volatile
+class MyDataLoader(DataLoader):
+    """In order to return MyDataLoaderIter when iter(MyDataLoader) called"""
+    def __iter__(self):
+        return MyDataLoaderIter(self)
 
-    def __len__(self):
-        return len(self.__dataloader)
+
+class MyDataLoaderIter(DataLoaderIter):
+    """Class method overriding for pickling DatatLoaderIter"""
+    def __init__(self, *inputs):
+        super(MyDataLoaderIter, self).__init__(*inputs)
+
+    def __del__(self):
+        if hasattr(self, 'num_workers'):
+            if self.num_workers > 0:
+                self._shutdown_workers()
+
+    def __getstate__(self):
+        # log.debug("pickling")
+        state_list = ['sample_iter', 'rcvd_idx', 'reorder_dict',
+                      'batches_outstanding']
+        state = dict()
+        for key, value in self.__dict__.items():
+            if key in state_list:
+                if key == 'sample_iter':
+                    # generator to list (generator can't be pickled)
+                    value = list(value)
+                state.update({key:value})
+        return state
+
+    def __setstate__(self, state):
+        for key, value in state.items():
+            if key == 'sample_iter':
+                # list to generator
+                value = (val for val in value)
+            self.__dict__.update({key:value})
+
+
+class DataScheduler(object):
+    def __init__(self, cfg, dataloader, volatile=False):
+        self._dataloader = dataloader
+        self._batch_iter = iter(self._dataloader)
+        self._batch = None # initial value
+        self._cuda = cfg.cuda
+        self._volatile = volatile
+        self.step = Step(len(dataloader), cfg.epochs)
 
     @property
     def batch(self):
-        return self.__batch.variable(self.__volatile).cuda(self.__cuda)
+        return self._batch.variable(self._volatile).cuda(self._cuda)
 
-    @property
-    def batch_step(self):
-        return self.__batch_step
+    def __len__(self):
+        return len(self._dataloader)
 
-    @property
-    def epoch_step(self):
-        return self.__epoch_step
+    def __getstate__(self):
+        # pickle only selected states for memory & time cost
+        state_list = ['_batch_iter', 'step']  #NOTE : use __setattr__
+        return {state: self.__dict__[state] for state in state_list}
 
-    @property
-    def global_step(self):
-        return self.__global_step
-
-    @property
-    def epoch_step(self):
-        return self.__epoch_step
+    def __setstate__(self, state):
+        self.__dict__ = state
 
     def reset(self):
-        self.__batch_iter = iter(self.__dataloader)
-        self.__batch_step = 0
-        self.__epoch_step += 1
+        self._batch_iter = iter(self._dataloader)
 
     def next(self):
-        self.__batch = next(self.__batch_iter, None)
-        self.__batch_step += 1
-        self.__global_step += 1
-        if self.__batch is None:
+        self.step.increase()
+        self._batch = next(self._batch_iter, None)
+        if self._batch is None:
             self.reset()
-            self.__batch = next(self.__batch_iter)
-        return self.__batch.variable(self.__volatile).cuda(self.__cuda)
+            self._batch = next(self._batch_iter)
+        return self.batch
+
+    def save_as_pickle(self, file_path):
+        with open(file_path, 'wb') as f:
+            pickle.dump(self, f)
+
+    def load_from_pickle(self, file_path):
+        with open(file_path, 'rb') as f:
+            loaded = pickle.load(f)
+            self._update_recursively(self, loaded)
+
+    def _update_recursively(self, tar, src):
+        # Updates state dict recursively preserving original attributes
+        tar_dict = tar.__dict__
+        src_dict = src.__dict__
+        for src_key, src_val in src_dict.items():
+            tar_val = tar_dict.get(src_key)
+            if hasattr(tar_val, '__dict__'):
+                self._update_recursively(tar_dict[src_key], src_dict[src_key])
+            else:
+                tar_dict[src_key] = src_val
+
+
+class Step(object):
+    def __init__(self, num_batch, num_epoch):
+        self.batch = 0
+        self.epoch = 0
+
+        self.batch_max = num_batch  # 1000
+        self.epoch_max = num_epoch  # 15
+        self.total_max = num_batch*num_epoch
+
+    @property
+    def total(self):
+        return self.batch_max*self.epoch + self.batch
+
+    def increase(self):
+        self.batch += 1
+
+        if self.batch >= self.batch_max:
+            self.batch = 0
+            self.epoch += 1
+
+    def is_end_of_step(self):
+        return self.epoch >= self.epoch_max
+
+    def __str__(self):
+        return "Epoch : %d/%d | Batches : %d/%d | Total : %d/%d" % (
+            self.epoch, self.epoch_max, self.batch, self.batch_max,
+            self.total, self.total_max)

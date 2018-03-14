@@ -9,7 +9,7 @@ import torch.nn.functional as F
 from models.base_module import BaseModule
 from nn.attention import MultiLinear4D, WordAttention, LayerAttention
 from nn.embedding import WordEmbedding
-from train.train_helper import ResultPackage
+from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')

@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from models.base_module import BaseModule
-from train.train_helper import ResultPackage
+from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
 

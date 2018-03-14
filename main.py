@@ -1,10 +1,10 @@
 import logging
 import os
 
-from loader.corpus import CorpusDataset, CorpusPOSDataset
+from loader.data import CorpusDataset, CorpusPOSDataset
 from loader.process import process_main_corpus, process_corpus_tag
 from test.test import test
-from train.train import train
+from train.train import Trainer
 from train.network import Network
 from utils.parser import parser
 from utils.utils import Config, set_logger, prepare_paths
@@ -41,10 +41,10 @@ if __name__ == '__main__':
 
     # Build network
     net = Network(cfg, corpus, vocab, vocab_pos)
-    
+
     # Train
     if not cfg.test:
-        train(net)
+        Trainer(net)
     # Test
     else:
         test(net)

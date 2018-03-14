@@ -51,6 +51,12 @@ class Vocab(object):
     def __len__(self):
         return len(self.word2idx)
 
+    def _update_id_attr(self, specials):
+        # make id attributes e.g. PAD_ID, EOS_ID, ...
+        specials = {special.strip("<>").upper() + '_ID' : i
+                    for i, special in enumerate(specials)}
+        self.__dict__.update(specials)
+
     @property
     def embed(self):
         if self._embed is None:
@@ -58,23 +64,6 @@ class Vocab(object):
                             "Run generated_embedding before call Vocab.embed!")
         else:
             return self._embed
-
-    def _update_id_attr(self, specials):
-        # make id attributes e.g. PAD_ID, EOS_ID, ...
-        specials = {special.strip("<>").upper() + '_ID' : i
-                    for i, special in enumerate(specials)}
-        self.__dict__.update(specials)
-
-    def pickle(self, file_path):
-        log.info('Pickling : %s' % file_path)
-        with open(file_path, 'wb') as f:
-            pickle.dump(self, f)
-
-    @staticmethod
-    def unpickle(file_path):
-        log.info('Unpickling : %s' % file_path)
-        with open(file_path, 'rb') as f:
-            return pickle.load(f)
 
     def generate_embedding(self, embed_dim, init_embed=None):
         # standard gaussian distribution initialization
@@ -87,59 +76,45 @@ class Vocab(object):
         if self.idx2word[self.PAD_ID] in self.word2idx.keys():
             self._embed[self.PAD_ID] = 0
 
+    def ids2text_batch(self, ids_batch):
+        return list(map(self.ids2text, ids_batch))
 
-    def numericalize_sents(self, sents):
+    def ids2words_batch(self, ids_batch):
+        return list(map(self.ids2words, ids_batch))
+
+    def word2ids_batch(self, word_batch):
         # convert words in sentences to indices
         # sents : [ [tok1, tok2, ... ], [tok1, tok2], ... ]
-        result = list()
-        unknown = self.word2idx.get('<unk>', None)
-        log.info('\nNumericalizing tokenized sents...')
-        for sent in tqdm(sents, total=len(sents)):
-            result.append([self.word2idx.get(token, unknown) for token in sent])
-        return result
+        return list(map(self.words2ids, word_batch))
 
+    def ids2text(self, ids):
+        words = []
+        for word in self.ids2words(ids):
+            if word == self.idx2word[self.PAD_ID]:
+                break
+            else:
+                words.append(word)
+        return ' '.join(words)
 
-class GloveMultiProcessor(LargeFileMultiProcessor):
-    def __init__(self, glove_dir, vector_size, num_process=None):
-        glove_files = {
-            50: 'glove.6B.50d.txt',
-            100: 'glove.6B.100d.txt',
-            200: 'glove.6B.200d.txt',
-            300: 'glove.840B.300d.txt',
-        }
-        file_path = os.path.join(glove_dir, glove_files[vector_size])
-        self.vector_size = vector_size # may not be used
-        super(GloveMultiProcessor, self).__init__(file_path, num_process)
+    def ids2words(self, ids):
+        return [self.idx2word[idx] for idx in ids]
 
-    def process(self):
-        results = super(GloveMultiProcessor, self).process()
-        log.info('\n' * (self.num_process - 1)) # to prevent dirty print
+    def words2ids(self, words):
+        return [self.word2idx.get(word, self.UNK_ID) for word in words]
 
-        word2vec = dict()
-        log.info('Merging the results from multi-processes...')
-        for i in tqdm(range(len(results)), total=len(results)):
-            word2vec.update(results[i])
-        return word2vec
+    def remove_pads_from_txt(self, txt):
+        return txt.replace(self.idx2word[self.PAD_ID], '')
 
-    def _process_chunk(self, chunk):
-        i, start, end = chunk
-        chunk_size = end - start
-        word2vec = dict()
+    def remove_after_first_pad(self, txt):
+        return txt[:txt.find(self.idx2word[self.PAD_ID])]
 
-        def process_line(line):
-            split_line = line.strip().split()
-            word = ' '.join(split_line[:-self.vector_size])
-            vector = [float(x) for x in split_line[-self.vector_size:]]
-            word2vec[word] = vector
+    def pickle(self, file_path):
+        log.info('Pickling : %s' % file_path)
+        with open(file_path, 'wb') as f:
+            pickle.dump(self, f)
 
-        with open(self.file_path, 'r') as f:
-            f.seek(start)
-            # process multiple chunks simultaneously with progress bar
-            text = '[Process #%2d] ' % i
-            with tqdm(total=chunk_size, desc=text, position=i) as pbar:
-                while f.tell() < end:
-                    curr = f.tell()
-                    line = f.readline()
-                    pbar.update(f.tell() - curr)
-                    process_line(line)
-        return word2vec
+    @staticmethod
+    def unpickle(file_path):
+        log.info('Unpickling : %s' % file_path)
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
