@@ -58,7 +58,7 @@ class Config(object):
     def init_from_parsed_args(cls, args):
         cfg = cls(vars(args))
         architect = ConvnetArchitect(cfg)
-        arch = architect.design_model_of(ConvnetType.ENCODER_ONLY)
+        arch = architect.design_model_of(ConvnetType.AUTOENCODER)
         cfg.update(dict(arch_cnn=Config(arch)))
         return cfg
 

@@ -142,7 +142,7 @@ class CorpusMultiProcessor(LargeFileMultiProcessor):
             for src, dst in replaces:
                 line = line.replace(src, dst)
             # tokenize line & count words
-            tokens = tokenizer(line)
+            tokens = tokenizer(line.strip())
             if len(tokens) > self.max_len or len(tokens) < self.min_len:
                 return None
             if self.lower:
@@ -285,7 +285,7 @@ class CorpusTagMultiProcessor(LargeFileMultiProcessor):
 
         results = [token_list, tag_list, token_cnt, tag_cnt]
         return results
-        
+
 
 class GloveMultiProcessor(LargeFileMultiProcessor):
     def __init__(self, glove_dir, vector_size, num_process=None):

@@ -83,7 +83,7 @@ class Network(object):
         self.embed = WordEmbedding(cfg, self.vocab) # Word embedding
         self.enc = EncoderCNN(cfg) # Encoder
         self.reg = CodeSmoothingRegularizer(cfg) # Code regularizer
-        self.dec = DecoderRNN(cfg, self.embed) # Decoder
+        self.dec = DecoderCNN(cfg, self.embed) # Decoder
         self.gen = Generator(cfg) # Generator
         self.disc_c = CodeDiscriminator(cfg) # Discriminator - code level
 

@@ -22,7 +22,7 @@ class ConvnetArchitect(object):
         # numbers for last layer will be automatically computed
         # NOTE : add to parser.py later!
         strides = "1-2"
-        filters = "5-5"
+        filters = "5-4"
         channels = "300-600"
 
         self.arch_s = [int(x) for x in strides.split('-')]
@@ -75,13 +75,13 @@ class ConvnetArchitect(object):
         self._log_debug(self.arch_c, "channels")
 
     def _design_decoder(self):
-        if not 'f' in self.__dict__:
+        if not 'arch_f' in self.__dict__:
             raise Exception("Can't design decoder before "
                             "ConvnetArchitect._design_encoder call")
         self.arch_w_r = [1]
         for i, j in zip(range(len(self.arch_f)),
                         reversed(range(len(self.arch_f)))):
-            self.w_r.append(self._next_w_r(
+            self.arch_w_r.append(self._next_w_r(
                 self.arch_w_r[i], self.arch_f[j], self.arch_s[j]))
 
         self._log_debug(self.arch_w_r, "widths_reversed")

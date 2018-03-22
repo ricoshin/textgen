@@ -10,7 +10,7 @@ from utils.utils import StopWatch
 log = logging.getLogger('main')
 
 
-def process_main_corpus(cfg, tokenizer):
+def process_main_corpus(cfg):
     StopWatch.go('Total')
     if (not os.path.exists(cfg.corpus_data_path)
         or not os.path.exists(cfg.corpus_vocab_path)
@@ -26,8 +26,7 @@ def process_main_corpus(cfg, tokenizer):
         else:
             corpus_proc = CorpusMultiProcessor(file_path=cfg.corpus_path,
                                                min_len=cfg.min_len,
-                                               max_len=cfg.max_len,
-                                               tokenizer=tokenizer)
+                                               max_len=cfg.max_len)
             sents, counter = corpus_proc.process()
 
         # pretrained embedding initialization if necessary
@@ -41,7 +40,8 @@ def process_main_corpus(cfg, tokenizer):
 
         vocab = Vocab(counter=counter, max_size=cfg.vocab_size,
                       specials=['<pad>', '<sos>', '<eos>', '<unk>'])
-        vocab.generate_embedding(embed_dim=cfg.word_embed_size, init_embed=word2vec)
+        vocab.generate_embedding(embed_dim=cfg.word_embed_size,
+                                 init_embed=word2vec)
         sents = vocab.words2ids_batch(sents)
 
         with StopWatch('Saving text (Main corpus)'):
@@ -57,7 +57,7 @@ def process_main_corpus(cfg, tokenizer):
     return vocab
 
 
-def process_pos_corpus(cfg, tokenizer):
+def process_pos_corpus(cfg):
     StopWatch.go('Total')
 
     if (not os.path.exists(cfg.pos_data_path)
@@ -67,8 +67,7 @@ def process_pos_corpus(cfg, tokenizer):
         # load & process pos tags
         tag_proc = CorpusMultiProcessor(file_path=cfg.pos_path,
                                         min_len=cfg.min_len,
-                                        max_len=cfg.max_len,
-                                        tokenizer=tokenizer)
+                                        max_len=cfg.max_len)
         tags, tag_counter = tag_proc.process()
 
         # make vocab

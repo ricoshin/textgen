@@ -20,7 +20,7 @@ class Generator(BaseModule):
         ninput = cfg.z_size
         noutput = cfg.hidden_size
 
-        activation = nn.ReLU()
+        activation = nn.LeakyReLU(0.2)
         layer_sizes = [ninput] + [int(x) for x in cfg.arch_g.split('-')]
         self.layers = []
 
@@ -39,9 +39,16 @@ class Generator(BaseModule):
             self.layers.append(activation)
             self.add_module("activation"+str(i+1), activation)
 
+        # last linear layer
         layer = nn.Linear(layer_sizes[-1], noutput)
         self.layers.append(layer)
         self.add_module("layer"+str(len(layer_sizes)), layer) # bug fix
+
+        # last activation
+        # layer = nn.Tanh()
+        # self.layers.append(layer)
+        # self.add_module("activation"+str(len(layer_sizes)), layer)
+
 
         # Generator(
         #     (layer1): Linear(in_features=z_size, out_features=300)
@@ -55,15 +62,16 @@ class Generator(BaseModule):
 
         self._init_weights()
 
-    def forward(self, z=None):
-        if z is None:
-            x = self.make_noise()
-        else:
-            x = z
+    def for_train(self):
+        return self(self.make_noise_size_of(self.cfg.batch_size))
 
+    def for_eval(self):
+        return self(self.make_noise_size_of(self.cfg.eval_size))
+
+    def forward(self, noise):
+        x = noise
         for i, layer in enumerate(self.layers):
             x = layer(x)
-
         return x
 
     def _init_weights(self):
@@ -76,9 +84,7 @@ class Generator(BaseModule):
             except:
                 pass
 
-    def make_noise(self, num_samples=None):
-        if num_samples is None:
-            num_samples = self.cfg.batch_size
+    def make_noise_size_of(self, num_samples):
         noise = Variable(torch.ones(num_samples, self.cfg.z_size))
         noise = to_gpu(self.cfg.cuda, noise)
         noise.data.normal_(0, 1)

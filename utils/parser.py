@@ -47,11 +47,13 @@ parser.add_argument('--hidden_size', type=int, default=300,
                     help='number of hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.2,
+parser.add_argument('--noise_radius', type=float, default=0.0,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
                          'every 100 iterations')
+parser.add_argument('--code_norm', type=str2bool, default=False,
+                    help='encoder code normalization')
 parser.add_argument('--hidden_init', action='store_true',
                     help="initialize decoder hidden state with encoder's")
 parser.add_argument('--arch_g', type=str, default='300-300',
@@ -64,7 +66,7 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_to_enc', type=float, default=1.0,
+parser.add_argument('--gan_to_enc', type=float, default=0.0,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--gan_to_dec', type=float, default=1.0,
                     help='weight factor passing gradient from gan to decoder')
@@ -81,7 +83,7 @@ parser.add_argument('--disc_s_in', type=str, default='embed',
                     help='disc_s input type')
 parser.add_argument('--enc_disc', type=str2bool, default=True,
                     help='weight sharing between encoder and disc_s')
-parser.add_argument('--pos_tag', type=str2bool, default=True,
+parser.add_argument('--pos_tag', type=str2bool, default=False,
                     help='determine whether the model use POS tags')
 
 # Training Arguments
@@ -96,7 +98,7 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--eval_size', type=int, default=256, metavar='N',
+parser.add_argument('--eval_size', type=int, default=1000, metavar='N',
                     help='batch size during evaluation')
 parser.add_argument('--niter_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')
@@ -131,7 +133,7 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 parser.add_argument('--anneal_step', type=int, default=200,
                     help='autoencdoer noise annealing interval')
-parser.add_argument('--embed_temp', type=float, default=100,
+parser.add_argument('--embed_temp', type=float, default=20,
                     help='temperature of log softmax in word prediction')
 
 # Evaluation Arguments

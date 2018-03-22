@@ -99,11 +99,11 @@ class CodeDiscriminator(BaseModule):
         for name, param in self.named_parameters():
             if 'pred_linear' in name:
                 continue
-            param_copy = deepcopy(param)
+            #param_copy = deepcopy(param)
             param.data.clamp_(-self.cfg.gan_clamp, self.cfg.gan_clamp)
-            if not param_copy.equal(param):
-                check_clamped = True
             # WGAN [min,max] clamp (default:0.01)
-        if not check_clamped:
-            log.info('no clamping')
+            #if not param_copy.equal(param):
+            #    check_clamped = True
+        #if not check_clamped:
+        #    log.info('no clamping')
         return self

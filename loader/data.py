@@ -50,60 +50,6 @@ class CorpusPOSDataset(Dataset):
         return sent, tag
 
 
-class Batch(object):
-    def __init__(self, source, target, length):
-        self.src = source
-        self.tar = target
-        self.len = length
-
-    def variable(self, volatile=False):
-        src = Variable(self.src, volatile=volatile)
-        tar = Variable(self.tar, volatile=volatile)
-        return Batch(src, tar, self.len)
-
-    def cuda(self, cuda=True):
-        if cuda:
-            src = self.src.cuda()
-            tar = self.tar.cuda()
-        else:
-            src = self.src
-            tar = self.tar
-        return Batch(src, tar, self.len)
-
-
-class BatchTag(Batch):
-    def __init__(self, source, target, length, source_tag, target_tag):
-        super(BatchTag, self).__init__(source, target, length)
-        self.__src_tag = source_tag
-        self.__tar_tag = target_tag
-
-    @property
-    def src_tag(self):
-        if self.__src_tag is None:
-            raise Exception("POS tag has not been initialzed!")
-        else:
-            return self.__src_tag
-
-    @property
-    def tar_tag(self):
-        if self.__tar_tag is None:
-            raise Exception("POS tag has not been initialzed!")
-        else:
-            return self.__tar_tag
-
-    def variable(self, volatile=False):
-        batch = super(BatchTag, self).variable(volatile)
-        src_tag = Variable(self.__src_tag, volatile=volatile)
-        tar_tag = Variable(self.__tar_tag, volatile=volatile)
-        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
-
-    def cuda(self, cuda=True):
-        batch = super(BatchTag, self).cuda(cuda)
-        src_tag = self.__src_tag.cuda()
-        tar_tag = self.__tar_tag.cuda()
-        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
-
-
 class BatchCollator(object):
     def __init__(self, cfg, vocab, gpu=False):
         self.cfg = cfg
@@ -121,14 +67,15 @@ class BatchCollator(object):
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
-            batch, lengths = self._length_sort(batch, lengths)
+            batch_max_len = self.cfg.max_len #max(lengths) #NOTE CNN/RNN
 
         for tokens in batch:
             # pad & sos/eos
             num_pads = batch_max_len - len(tokens)
             pads = [self.vocab.PAD_ID] * num_pads
             x = tokens + pads
-            y = tokens + [self.vocab.EOS_ID] + pads
+            y = tokens + pads
+            #y = tokens + [self.vocab.EOS_ID] + pads
 
             source.append(x)
             target.append(y)
@@ -165,7 +112,7 @@ class POSBatchCollator(BatchCollator):
             # sent and pos length must be the same
             assert(len(sent) == len(tag))
             lengths.append(len(sent))
-        batch_max_len = max(lengths)
+        batch_max_len = self.cfg.max_len #max(lengths) #NOTE CNN/RNN
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
@@ -177,7 +124,8 @@ class POSBatchCollator(BatchCollator):
             pads = [self.vocab.PAD_ID] * num_pads
             src = sent + pads
             src_tag = tag + pads
-            tar = sent + [self.vocab.EOS_ID] + pads
+            tar = sent + pads
+            #tar = sent + [self.vocab.EOS_ID] + pads
             tar_tag = tag + [self.vocab_pos.EOS_ID] + pads
 
             source.append(src)
@@ -197,6 +145,68 @@ class POSBatchCollator(BatchCollator):
             target_tag = target_tag.cuda()
 
         return BatchTag(source, target, lengths, source_tag, target_tag)
+
+
+class Batch(object):
+    def __init__(self, source, target, length):
+        self.src = source
+        self.tar = target
+        self.len = length
+
+    @property
+    def max_len(self):
+        return max(self.len)
+
+    def variable(self, volatile=False):
+        src = Variable(self.src, volatile=volatile)
+        tar = Variable(self.tar, volatile=volatile)
+        return Batch(src, tar, self.len)
+
+    def cuda(self, cuda=True):
+        if cuda:
+            src = self.src.cuda()
+            tar = self.tar.cuda()
+        else:
+            src = self.src
+            tar = self.tar
+        return Batch(src, tar, self.len)
+
+
+class BatchTag(Batch):
+    def __init__(self, source, target, length, source_tag, target_tag):
+        super(BatchTag, self).__init__(source, target, length)
+        self.__src_tag = source_tag
+        self.__tar_tag = target_tag
+
+    @property
+    def max_len(self):
+        return max(self.len)
+
+    @property
+    def src_tag(self):
+        if self.__src_tag is None:
+            raise Exception("POS tag has not been initialzed!")
+        else:
+            return self.__src_tag
+
+    @property
+    def tar_tag(self):
+        if self.__tar_tag is None:
+            raise Exception("POS tag has not been initialzed!")
+        else:
+            return self.__tar_tag
+
+    def variable(self, volatile=False):
+        batch = super(BatchTag, self).variable(volatile)
+        src_tag = Variable(self.__src_tag, volatile=volatile)
+        tar_tag = Variable(self.__tar_tag, volatile=volatile)
+        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
+
+    def cuda(self, cuda=True):
+        batch = super(BatchTag, self).cuda(cuda)
+        src_tag = self.__src_tag.cuda()
+        tar_tag = self.__tar_tag.cuda()
+        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
 
 
 class MyDataLoader(DataLoader):

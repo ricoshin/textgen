@@ -72,7 +72,7 @@ class BaseAutoencoder(BaseModule):
 
         if gan_norm == .0:
             gan_norm += + self.eps
-            log.warning("zero gan norm to %s!" % m_type)
+            #log.warning("zero gan norm to %s!" % m_type)
 
         normed_grad = grad * self.grad_norm / gan_norm
         normed_grad *= factor
@@ -81,6 +81,7 @@ class BaseAutoencoder(BaseModule):
     def clip_grad_norm(self):
         nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
         return self
+
 
 class BaseEncoder(BaseAutoencoder):
     def __init__(self, cfg):

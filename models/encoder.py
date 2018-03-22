@@ -22,10 +22,11 @@ class EncoderRNN(BaseEncoder):
                                num_layers=cfg.nlayers,
                                dropout=cfg.dropout,
                                batch_first=True)
+        self.fc_layer = nn.Linear(cfg.hidden_size, 300)
         self._init_weights()
 
     def _encode(self, embed_in, lengths):
-         # indices = [bsz, max_len], lengths = [bsz]
+        # indices = [bsz, max_len], lengths = [bsz]
 
         # Embedding and pack
         packed_embeddings = pack_padded_sequence(input=embed_in,
@@ -35,6 +36,8 @@ class EncoderRNN(BaseEncoder):
         packed_output, state = self.encoder(packed_embeddings)
         hidden, cell = state # last states (tuple the length of 2)
         code = hidden[-1]  # get hidden state of last layer of encoder
+
+        code = self.fc_layer(code)
 
         return code # batch_size x hidden_size
 
@@ -63,7 +66,7 @@ class EncoderCNN(BaseEncoder):
 
         self.criterion_mse = nn.MSELoss()
 
-    def _encode(self, embed_in):
+    def _encode(self, embed_in, lengths):
         # NOTE : lengths can be used for pad masking
         if embed_in.size(1) < self.cfg.max_len:
             embed_in = self._append_zero_embeds(embed_in)
@@ -75,7 +78,7 @@ class EncoderCNN(BaseEncoder):
 
         for i, conv in enumerate(self.convs):
             if i < len(self.convs) - 1:
-                x = F.relu(conv(x))
+                x = F.leaky_relu(conv(x), 0.2)
             else:
                 x = conv(x)
 
@@ -100,6 +103,7 @@ class CodeSmoothingRegularizer(BaseModule):
         super(CodeSmoothingRegularizer, self).__init__()
         self.cfg = cfg
         self.is_with_var = True  # default
+        self.fc_mu = nn.Linear(cfg.hidden_size, cfg.hidden_size)
         self.fc_logvar = nn.Linear(cfg.hidden_size, cfg.hidden_size)
         self._var = None
 
@@ -119,18 +123,23 @@ class CodeSmoothingRegularizer(BaseModule):
         return self(code)
 
     def forward(self, code):
+        mu = self.fc_mu(code)
         logvar = self.fc_logvar(code)
-        code_new = self._reparameterize(code, logvar)
+        code_new = self._reparameterize(mu, logvar)
         self.is_with_var = True # back to default
         return code_new
 
-    def _reparameterize(self, code, logvar):
+    def _reparameterize(self, mu, logvar):
         if self.is_with_var:
             std = logvar.mul(0.5).exp_()
             eps = Variable(std.data.new(std.size()).normal_())
             var = eps.mul(std)
             self._var = var.mean().data[0]
-            return var.add_(code)
+            return var.add_(mu)
         else:
             self._var = None
-            return code
+            return mu
+
+    def clip_grad_norm(self):
+        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+        return self

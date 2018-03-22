@@ -30,10 +30,10 @@ class TrainingSupervisor(object):
             self._log_scalar_and_text: interval_eval,
             self._save_scalar_and_text: interval_eval,
             self._save_data_and_module: interval_eval,
+            self._save_embedding: 1000,
             }
 
         self.interval_func_global = {
-            self._save_embedding: interval_eval,
         }
 
         self._gan_schedule = self._init_gan_schedule()

@@ -26,7 +26,7 @@ class Trainer(object):
 
         self.net = net
         self.cfg = net.cfg
-        self.fixed_noise = net.gen.make_noise(net.cfg.eval_size)
+        #self.fixed_noise = net.gen.make_noise_size_of(net.cfg.eval_size)
 
         self.test_sents = load_test_data(net.cfg)
         self.pos_one = to_gpu(net.cfg.cuda, torch.FloatTensor([1]))
@@ -34,7 +34,7 @@ class Trainer(object):
 
         self.result = ResultWriter(net.cfg)
         self.sv = TrainingSupervisor(net, self.result)
-        self.sv.interval_func_train.update({net.enc.decay_noise_radius: 200})
+        #self.sv.interval_func_train.update({net.enc.decay_noise_radius: 200})
 
         while not self.sv.is_end_of_training():
             self.train_loop(self.cfg, self.net, self.sv)
@@ -43,38 +43,42 @@ class Trainer(object):
         """Main training loop"""
 
         with sv.training_context():
+
             # train autoencoder
             for i in range(sv.niter_ae):  # default: 1 (constant)
                 if net.data_ae.step.is_end_of_step(): break
                 batch = net.data_ae.next()
                 self._train_autoencoder(batch)
+
             # train gan
-            for k in range(sv.niter_gan): # epc0=1, epc2=2, epc4=3, epc6=4
-                # train discriminator/critic (at a ratio of 5:1)
-                for i in range(cfg.niter_gan_d): # default: 5
-                    batch = net.data_gan.next()
-                    self._train_discriminator(batch)
-                    #self._train_regularizer(batch)
-                # train generator(with disc_c) / decoder(with disc_s)
-                for i in range(cfg.niter_gan_g): # default: 1
-                    self._train_generator()
+            # for k in range(sv.niter_gan): # epc0=1, epc2=2, epc4=3, epc6=4
+            #
+            #     # train discriminator/critic (at a ratio of 5:1)
+            #     for i in range(cfg.niter_gan_d): # default: 5
+            #         batch = net.data_gan.next()
+            #         self._train_discriminator(batch)
+            #         #self._train_regularizer(batch)
+            #
+            #     # train generator(with disc_c) / decoder(with disc_s)
+            #     for i in range(cfg.niter_gan_g): # default: 1
+            #         self._train_generator()
 
         if sv.is_evaluation():
             with sv.evaluation_context():
                 batch = net.data_eval.next()
                 #self._eval_autoencoder(batch, 'tf')
                 self._eval_autoencoder(batch, 'fr')
-                self._generate_text()
+                # self._generate_text()
 
     def _train_autoencoder(self, batch, name='AE_train'):
         self.net.set_modules_train_mode(True)
 
         # Build graph
         embed = self.net.embed(batch.src)
-        code_var = self.net.enc(embed)
+        code = self.net.enc(embed, batch.len)
 
-        #code_var = self.net.reg.without_var(code)
-        #cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
+        code_var = self.net.reg.with_var(code)
+        cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
         decoded = self.net.dec.teacher_forcing(code_var, batch)
 
         # Register hook
@@ -84,6 +88,7 @@ class Trainer(object):
         decoded.set_autoencoder_target(batch)
 
         # Compute word prediction loss and accuracy
+        import pdb; pdb.set_trace()
         masked_output, masked_target = \
             mask_output_target(decoded.prob, batch.tar, self.cfg.vocab_size)
         loss_word = self.net.dec.criterion_nll(masked_output, masked_target)
@@ -100,13 +105,13 @@ class Trainer(object):
         # optimize
         self.net.optim_embed.step()
         self.net.optim_enc.step()
-        #self.net.optim_reg_ae.step()
+        self.net.optim_reg_ae.step()
         self.net.optim_dec.step()
 
         self.result.add(name, odict(
             loss=loss_word.data[0],
             acc=acc_word.data[0],
-            #cosim=cos_sim.data[0],
+            cosim=cos_sim.data[0],
             var=self.net.reg.var,
             noise=self.net.enc.noise_radius,
             text=decoded.get_text(),
@@ -118,9 +123,9 @@ class Trainer(object):
 
         # Build graph
         embed = self.net.embed(batch.src)
-        code_var = self.net.enc(embed)
-        #code_var = self.net.reg.without_var(code)
-        #cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
+        code = self.net.enc(embed, batch.len)
+        code_var = self.net.reg.with_var(code)
+        cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
 
         if decode_mode == 'tf':
             decoded = self.net.dec.teacher_forcing(code_var, batch)
@@ -159,7 +164,7 @@ class Trainer(object):
 
         # Build graph
         embed = self.net.embed(batch.src)
-        code = self.net.enc(embed)
+        code = self.net.enc(embed, batch.len)
         code_noise = self.net.enc.with_noise(embed)
         cos_sim = F.cosine_similarity(code, code_noise, dim=1).mean()
 
@@ -201,8 +206,8 @@ class Trainer(object):
 
         # Build graph
         embed = self.net.embed(batch.src)
-        code_real_var = self.net.enc(embed)
-        #code_real_var = self.net.reg.with_var(code_real)
+        code_real = self.net.enc(embed, batch.len)
+        code_real_var = self.net.reg.with_var(code_real)
         disc_real = self.net.disc_c(code_real_var)
 
         # loss / backprop
@@ -215,7 +220,7 @@ class Trainer(object):
         self.net.set_modules_train_mode(True)
 
         # Build graph
-        code_fake = self.net.gen()
+        code_fake = self.net.gen.for_train()
         disc_fake = self.net.disc_c(code_fake) # NOTE batch norm should be on
 
         # loss / backprop
@@ -229,8 +234,9 @@ class Trainer(object):
 
         # Code generation
         embed = self.net.embed(batch.src)
-        code_real = self.net.enc(embed)
-        code_fake = self.net.gen()
+        code = self.net.enc(embed, batch.len)
+        code_real = self.net.reg.with_var(code)
+        code_fake = self.net.gen.for_train()
 
         # Grad hook : gradient scaling
         code_real.register_hook(self.net.enc.scale_disc_grad_hook)
@@ -245,14 +251,16 @@ class Trainer(object):
         # WGAN backward
         disc_real.backward(self.pos_one)
         disc_fake.backward(self.neg_one)
+        #loss_total.backward()
 
         # Gradient clipping
         self.net.embed.clip_grad_norm()
         self.net.enc.clip_grad_norm()
+        self.net.reg.clip_grad_norm()
 
         self.net.optim_embed.step() #NOTE
         self.net.optim_enc.step()
-        #self.net.optim_reg_ae.step()
+        self.net.optim_reg_ae.step()
         self.net.optim_disc_c.step()
 
         self.result.add(name, odict(
@@ -265,7 +273,7 @@ class Trainer(object):
         self.net.set_modules_train_mode(True)
 
         # Build graph
-        code_fake = self.net.gen()
+        code_fake = self.net.gen.for_eval()
         decoded = self.net.dec.free_running(code_fake, self.cfg.max_len)
 
         code_fake_embed = ResultWriter.Embedding(

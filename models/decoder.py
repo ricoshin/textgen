@@ -109,7 +109,7 @@ class DecoderRNN(BaseDecoder):
         tags = self.linear_tag(out_tag)
         tags = tags.view(batch_size, max(lengths), self.cfg.tag_size)
 
-        return self.result_packer.new(words_embed, words_id, words_prob, tags)
+        return self.result_packer.new(words_embed, words_id, words_prob)
 
     def _decode_fr(self, code, max_len):
         batch_size = code.size(0)
@@ -167,7 +167,7 @@ class DecoderRNN(BaseDecoder):
         words_id = torch.cat(all_words_id, 1)
         tags = torch.cat(all_tags, 1)
 
-        return self.result_packer.new(words_embed, words_id, words_prob, tags)
+        return self.result_packer.new(words_embed, words_id, words_prob)
 
     def _init_weights(self):
         # unifrom initialization in the range of [-0.1, 0.1]
@@ -232,86 +232,16 @@ class DecoderRNN(BaseDecoder):
         return cos_sim # [bsz, (max_len,) vocab_size]
 
 
-class ResultPackerRNN(object):
-    def __init__(self, decoder):
-        self.cfg = decoder.cfg
-        self.vocab = decoder.vocab
-
-    def new(self, embeds, ids, probs, tags):
-        return self.Package(self, embeds, ids, probs, tags)
-
-    class Package(object):
-        def __init__(self, packer, embeds, ids, probs, tags):
-            self.cfg = packer.cfg
-            self.vocab = packer.vocab
-            self._is_autoencoded = False
-
-            self.embed = embeds
-            self.id = ids.data.cpu().numpy()
-            self.prob = probs
-            self.tag = tags
-
-            self.id_tar = None
-            self.length = None
-
-        def set_autoencoder_target(self, batch):
-            self._is_autoencoded = True
-            id_tar = batch.tar.view(batch.src.size(0), -1)
-            self.id_tar = id_tar.data.cpu().numpy()
-            self.length = batch.len
-
-        def get_text(self, num_sample=None):
-            if num_sample is None:
-                num_sample = self.cfg.log_nsample
-            if self._is_autoencoded:
-                return self._get_autoencoded_n_text_samples(num_sample)
-            else:
-                return self._get_decoded_n_text_samples(num_sample)
-
-        def get_text_batch(self):
-            return self.vocab.ids2text_batch(self.id)
-
-        def _get_line(self, char='-', row=1, length=130):
-            out_str = ''
-            for i in range(row):
-                out_str += char * length
-            return out_str + '\n'
-
-        def _get_decoded_n_text_samples(self, num_sample):
-            ids_batch = self.vocab.ids2words_batch(self.id)
-            np.random.shuffle(ids_batch)
-            out_str = ''
-            for i, ids in enumerate(ids_batch):
-                out_str += self._get_line()
-                if i >= num_sample: break
-                out_str += ' '.join(ids) + '  \n'
-                # we need double space here for markdown linebreak
-            return out_str
-
-        def _get_autoencoded_n_text_samples(self, num_sample):
-            if self.id_tar is None:
-                raise Exception('call set_autoencoder_target(batch) first!')
-            ids_batch_x = self.vocab.ids2words_batch(self.id_tar)
-            ids_batch_y = self.vocab.ids2words_batch(self.id)
-            coupled = list(zip(ids_batch_x, ids_batch_y))
-            np.random.shuffle(coupled)
-            out_str = ''
-            for i, (ids_x, ids_y) in enumerate(coupled):
-                out_str += self._get_line()
-                if i >= num_sample: break
-                out_str += '[X]' + ' '.join(ids_x) + '  \n'
-                out_str += '[Y]' + ' '.join(ids_y) + '  \n'
-                # we need double space here for markdown linebreak
-            return out_str
-
-
 class DecoderCNN(BaseDecoder):
-    def __init__(self, cfg):
-        super(DecoderCNN, self).__init__(cfg)
+    def __init__(self, cfg, embed):
+        super(DecoderCNN, self).__init__()
         # expected input dim
         #   : [bsz, c(embed or hidden size), h(1), w(max_len)]
         # main convoutional layers
         arch = cfg.arch_cnn
+        self.cfg = cfg
+        self.vocab = embed.vocab
+        self.result_packer = ResultPackerCNN(self, embed)
         self.deconvs = []
         for i in reversed(range(arch.n_conv)):
             deconv = nn.ConvTranspose2d(arch.c[i+1], arch.c[i],
@@ -322,7 +252,7 @@ class DecoderCNN(BaseDecoder):
         self.criterion_ce = nn.CrossEntropyLoss()
         self.criterion_nll = nn.NLLLoss()
 
-    def forward(self, code, save_grad_norm=False):
+    def forward(self, code):
         # NOTE : lengths can be used for pad masking
 
         x = code.view(*code.size(), 1, 1)
@@ -332,11 +262,113 @@ class DecoderCNN(BaseDecoder):
         embed = x.squeeze().permute(0, 2, 1)
         embed = F.normalize(embed, p=2, dim=2)
 
-        if embed.requires_grad:
-            embed.register_hook(self._grad_norm_saving_hook)
+        assert len(embed.size()) == 3
+        assert embed.size(1) == self.cfg.max_len
+        assert embed.size(2) == self.cfg.word_embed_size
 
-        assert(len(embed.size()) == 3)
-        assert(embed.size(1) == self.cfg.max_len)
-        assert(embed.size(2) == self.cfg.word_embed_size)
+        return self.result_packer.new(embed) # [bsz, hidden_size]
 
-        return embed # [bsz, hidden_size]
+
+class ResultPackerRNN(object):
+    def __init__(self, decoder):
+        self.cfg = decoder.cfg
+        self.vocab = decoder.vocab
+
+    def new(self, embeds, ids, probs):
+        return ResultPackage(self, embeds, ids, probs)
+
+
+class ResultPackerCNN(object):
+    def __init__(self, decoder, embed_ref):
+        self.cfg = decoder.cfg
+        self.vocab = decoder.vocab
+        self.embed_ref = embed_ref
+
+    def new(self, embeds):
+        cosim = self._compute_cosine_sim(embeds)
+        _, ids = torch.max(cosim, dim=2)
+        probs = F.log_softmax(cosim * self.cfg.embed_temp, 2)
+        return ResultPackage(self, embeds, ids, probs)
+
+    def _compute_cosine_sim(self, out_embed):
+        # compute cosine similarity
+        embed = F.normalize(self.embed_ref.embed.weight, p=2, dim=1)#.detach()
+        embed = Variable(embed.data, requires_grad=False)
+        vocab_size, embed_size = embed.size()
+        embed = embed.permute(1, 0) # [embed_size, vocab_size]
+        out_size = out_embed.size()
+        out_embed = out_embed.view(-1, embed_size) # [bsz(*maxlen), embed_size]
+        cos_sim = torch.mm(out_embed, embed) # [bsz(*maxlen), vocab_size]
+        cos_sim = cos_sim.view(*out_size[:-1], vocab_size)
+        return cos_sim # [bsz, (max_len,) vocab_size]
+
+
+class ResultPackage(object):
+    def __init__(self, packer, embeds, ids, probs):
+        self.cfg = packer.cfg
+        self.vocab = packer.vocab
+        self.embed = embeds
+        self.id = WordIdTranscriber(ids, packer.vocab)
+        self.prob = probs
+
+    def get_text(self, num_sample=None):
+        if num_sample is None:
+            num_sample = self.cfg.log_nsample
+        return self.id.to_text(num_sample)
+
+    def get_text_with_target(self, id_target, num_sample=None):
+        if num_sample is None:
+            num_sample = self.cfg.log_nsample
+        return self.id.to_text_with_target(id_target, num_sample)
+
+    def get_text_batch(self):
+        return self.id.to_text_batch()
+
+
+class WordIdTranscriber(object):
+    def __init__(self, ids, vocab):
+        self.vocab = vocab
+        self.ids = ids.data.cpu().numpy()
+
+    def to_text(self, num_sample=None):
+        if num_sample is None:
+            num_sample = self.cfg.log_nsample
+        if self._is_autoencoded:
+            return self._get_autoencoded_n_text_samples(num_sample)
+        else:
+            return self._get_decoded_n_text_samples(num_sample)
+
+    def to_text_batch(self):
+        return self.vocab.ids2text_batch(self.ids)
+
+    def to_text(self, num_sample):
+        ids_batch = self.vocab.ids2words_batch(self.ids)
+        np.random.shuffle(ids_batch)
+        out_str = ''
+        for i, ids in enumerate(ids_batch):
+            out_str += self._get_line()
+            if i >= num_sample: break
+            out_str += ' '.join(ids) + '  \n'
+            # we need double space here for markdown linebreak
+        return out_str
+
+    def to_text_with_target(self, ids_target, num_sample):
+        ids_target = ids_target.data.cpu().numpy()
+        ids_batch_x = self.vocab.ids2words_batch(ids_target)
+        ids_batch_y = self.vocab.ids2words_batch(self.ids)
+        coupled = list(zip(ids_batch_x, ids_batch_y))
+        np.random.shuffle(coupled)
+        out_str = ''
+        for i, (ids_x, ids_y) in enumerate(coupled):
+            out_str += self._get_line()
+            if i >= num_sample: break
+            out_str += '[X]' + ' '.join(ids_x) + '  \n'
+            out_str += '[Y]' + ' '.join(ids_y) + '  \n'
+            # we need double space here for markdown linebreak
+        return out_str
+
+    def _get_line(self, char='-', row=1, length=130):
+        out_str = ''
+        for i in range(row):
+            out_str += char * length
+        return out_str + '\n'

@@ -46,13 +46,13 @@ class WordEmbedding(BaseModule):
 
         # normalize columns & zero PAD embedding
         new_weight = F.normalize(self.embed.weight, p=2, dim=1)
-        new_weight[self.vocab.PAD_ID] = torch.zeros(self.embed_size)
+        #new_weight[self.vocab.PAD_ID] = torch.zeros(self.embed_size)
         self.embed.weight = nn.Parameter(new_weight.data,
                                          requires_grad=self.requires_grad)
 
         if mode is 'hard':
             # indices : [bsz, max_len]
-            assert(len(indices.size()) == 2)
+            assert len(indices.size()) == 2
             return self.embed(indices)
         else:
             # indices : [baz, max_len, vocab_size]

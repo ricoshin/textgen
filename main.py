@@ -4,7 +4,7 @@ import os
 from loader.data import CorpusDataset, CorpusPOSDataset
 from loader.process import process_main_corpus, process_corpus_tag
 from test.test import test
-from train.train import Trainer
+from train.train_cnn import Trainer
 from train.network import Network
 from utils.parser import parser
 from utils.utils import Config, set_logger, prepare_paths
@@ -35,7 +35,7 @@ if __name__ == '__main__':
         corpus = CorpusPOSDataset(cfg.corpus_data_path,
                                   cfg.pos_data_path)
     else:
-        vocab = process_main_corpus(cfg, 'spacy')
+        vocab = process_main_corpus(cfg)
         vocab_pos = None
         corpus = CorpusDataset(cfg.corpus_data_path)
 

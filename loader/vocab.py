@@ -74,7 +74,8 @@ class Vocab(object):
                 self._embed[idx] = init_embed.get(word, self._embed[idx])
         # embedding of <pad> token should be zero
         if self.idx2word[self.PAD_ID] in self.word2idx.keys():
-            self._embed[self.PAD_ID] = 0
+            #self._embed[self.PAD_ID] = 0
+            pass
 
     def ids2text_batch(self, ids_batch):
         return list(map(self.ids2text, ids_batch))
@@ -82,7 +83,7 @@ class Vocab(object):
     def ids2words_batch(self, ids_batch):
         return list(map(self.ids2words, ids_batch))
 
-    def word2ids_batch(self, word_batch):
+    def words2ids_batch(self, word_batch):
         # convert words in sentences to indices
         # sents : [ [tok1, tok2, ... ], [tok1, tok2], ... ]
         return list(map(self.words2ids, word_batch))
