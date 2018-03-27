@@ -1,23 +1,25 @@
-from enum import Enum
 import logging
+from enum import Enum, unique
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 import torch.nn.functional as F
+from torch.autograd import Variable
 
 log = logging.getLogger('main')
 
 
 @unique
 class ConvnetType(Enum):
-    ENCODER_ONLY = 0 # NOTE: redundant for now
+    ENCODER_ONLY = 0  # NOTE: redundant for now
     AUTOENCODER = 1
     ENC_DISC = 2
+
 
 class ConvnetArchitect(object):
     """ You must set key attributes as names starting with 'arch_' prefix
        that will be finally removed when they're returned. """
+
     def __init__(self, cfg):
         self.cfg = cfg
         # numbers for last layer will be automatically computed
@@ -55,7 +57,7 @@ class ConvnetArchitect(object):
 
         # Channels : add the first and the last dim
         n_embed = self.cfg.embed_size_w
-        n_hidden = self.cfg.hidden_size_w + self.cfg.hidden_size_t
+        n_hidden = self.cfg.hidden_size_w
         self.arch_c = [n_embed] + self.arch_c + [n_hidden]
 
         # Widths
@@ -93,9 +95,9 @@ class ConvnetArchitect(object):
                             "ConvnetArchitect._design_encoder call")
         self.arch_attn = [int(x) for x in attn.split('-')]
         # last attn does not exist
-        assert(len(self.arch_attn) == (self.arch_n_conv -1))
+        assert(len(self.arch_attn) == (self.arch_n_conv - 1))
 
-        self.arch_n_mat = self.arch_c[-1] # for dimension matching
+        self.arch_n_mat = self.arch_c[-1]  # for dimension matching
         self.arch_n_fc = 2
         self.arch_fc = [self.arch_n_mat] * (self.arch_n_fc) + [1]
 
@@ -117,7 +119,7 @@ class ConvnetArchitect(object):
         next_size = (in_size - f_size) / s_size + 1
 
         if (self.convnet_type is ConvnetType.AUTOENCODER and
-            not next_size.is_integer()):
+                not next_size.is_integer()):
             raise ValueError("Feature map size has to be a whole number "
                              "so that it can be deconved symmetrically")
         if next_size < 0:

@@ -14,7 +14,7 @@ log = logging.getLogger('main')
 
 
 class CodeDiscriminator(BaseModule):
-    def __init__(self, cfg, code_size):
+    def __init__(self, cfg):
         super(CodeDiscriminator, self).__init__()
         # arguments default values
         #   ninput: args.nhidden=300
@@ -23,7 +23,7 @@ class CodeDiscriminator(BaseModule):
 
         # nhidden(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- 1(out)
         self.cfg = cfg
-        ninput = code_size # 300(nhidden)
+        ninput = cfg.hidden_size_w
         noutput = 1
 
         activation = nn.LeakyReLU(0.2)

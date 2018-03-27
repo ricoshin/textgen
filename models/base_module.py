@@ -55,12 +55,6 @@ class BaseEncoder(BaseAutoencoder):
         self.noise_radius = cfg.noise_radius
         self._is_add_noise = False
 
-        last_size = cfg.hidden_size_w + cfg.hidden_size_t
-        self.code_t = nn.Linear(cfg.hidden_size_w + cfg.hidden_size_t,
-                                cfg.hidden_size_t)
-        self.code_w = nn.Linear(cfg.hidden_size_w + cfg.hidden_size_t,
-                                cfg.hidden_size_w)
-
     def with_noise(self, *inputs):
         self._is_add_noise = True
         return self.__call__(*inputs)
@@ -68,21 +62,16 @@ class BaseEncoder(BaseAutoencoder):
     def forward(self, *inputs):
         code = self._encode(*inputs)
 
-        code_t = self.code_t(code)
-        code_w = self.code_w(code)
-
         # normalization
         if self.cfg.code_norm:
-            code_t = self._normalize(code_t)
-            code_w = self._normalize(code_w)
+            code = self._normalize(code)
 
         # unit gaussian noise
         if self._is_add_noise and self.noise_radius > 0:
-            code_t = self._add_gaussian_noise_to(code_t)
-            code_w = self._add_gaussian_noise_to(code_w)
+            code = self._add_gaussian_noise_to(code)
             self._is_add_noise = False # back to default
 
-        return code_t, code_w
+        return code
 
     def _add_gaussian_noise_to(self, code):
         # gaussian noise

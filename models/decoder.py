@@ -14,25 +14,14 @@ log = logging.getLogger('main')
 
 
 class DecoderRNN(BaseDecoder):
-    def __init__(self, cfg, embed_w, embed_t):
+    def __init__(self, cfg, embed_w):
         super(DecoderRNN, self).__init__()
         self.cfg = cfg
-        self.embed_t = embed_t
         self.embed_w = embed_w
-        self.vocab_t = embed_t.vocab
         self.vocab_w = embed_w.vocab
-        self.packer_t = ResultPackerRNN(cfg, embed_t.vocab)
         self.packer_w = ResultPackerRNN(cfg, embed_w.vocab)
 
-        if cfg.pos_tag:
-            input_size = cfg.embed_size_t + cfg.hidden_size_t
-            self.tagger = nn.LSTM(input_size=input_size,
-                                  hidden_size=cfg.hidden_size_t,
-                                  dropout=cfg.dropout,
-                                  batch_first=True)
-            self.linear_t = nn.Linear(cfg.hidden_size_t, cfg.embed_size_t)
-
-        input_size = cfg.embed_size_t + cfg.embed_size_w + cfg.hidden_size_w
+        input_size = cfg.embed_size_w + cfg.hidden_size_w
         self.decoder = nn.LSTM(input_size=input_size,
                                hidden_size=cfg.hidden_size_w,
                                num_layers=1,
@@ -44,12 +33,12 @@ class DecoderRNN(BaseDecoder):
         self.criterion_nll = nn.NLLLoss()
         self._init_weights()
 
-    def teacher_forcing(self, code_tag, code_dec, batch):
+    def teacher_forcing(self, code, batch):
         return self.__call__(
-            code_tag, code_dec, batch.src_tag, batch.src, batch.len, mode='tf')
+            code, batch.src, batch.len, mode='tf')
 
-    def free_running(self, code_t, code_w, max_len):
-        return self.__call__(code_t, code_w, max_len, mode='fr')
+    def free_running(self, code, max_len):
+        return self.__call__(code, max_len, mode='fr')
 
     def forward(self, *inputs, mode):
         if mode == 'tf':  # teacher forcing
@@ -63,44 +52,22 @@ class DecoderRNN(BaseDecoder):
 
         return decoded
 
-    def _decode_tf(self, code_t, code_w, tags, words, lengths):
-        batch_size = code_t.size(0)
+    def _decode_tf(self, code_w, words, lengths):
+        batch_size = code_w.size(0)
 
         # insert sos in the first column
-        sos_t = self._get_sos_batch(batch_size, self.vocab_w)
-        sos_w = self._get_sos_batch(batch_size, self.vocab_t)
-        tags = torch.cat([sos_t, tags], 1)
+        sos_w = self._get_sos_batch(batch_size, self.vocab_w)
         words = torch.cat([sos_w, words], 1)
 
         # length should be increased as well
         lengths = [length + 1 for length in lengths]
-
-        init_state_t = self._init_hidden(batch_size, self.cfg.hidden_size_t)
         init_state_w = self._init_hidden(batch_size, self.cfg.hidden_size_w)
 
-        embed_in_t = self.embed_t(tags)  # for teacher forcing
-        embed_in_w = self.embed_w(words)
-
-        all_code_t = code_t.unsqueeze(1).repeat(1, max(lengths), 1)
+        embed_in_w = self.embed_w(words)  # for teacher forcing
         all_code_w = code_w.unsqueeze(1).repeat(1, max(lengths), 1)
 
-        # POS tagger
-        input_t = torch.cat([embed_in_t, all_code_t], 2)
-        packed_input_t = pack_padded_sequence(input=input_t,
-                                              lengths=lengths,
-                                              batch_first=True)
-        packed_output_t, _ = self.tagger(packed_input_t, init_state_t)
-        output_t, _ = pad_packed_sequence(packed_output_t, batch_first=True)
-
-        embed_out_t = self.linear_t(output_t)
-        cosim_t = self._compute_cosine_sim(embed_out_t, self.embed_t.embed)
-        prob_t = F.log_softmax(cosim_t * self.cfg.embed_temp, 2)
-        _, id_t = torch.max(cosim_t, 2)
-        embed_out_t = self.embed_t(id_t)
-
         # Decoder
-        embed_out_t_d = Variable(embed_out_t.data, requires_grad=False)
-        input_w = torch.cat([embed_out_t_d, embed_in_w, all_code_w], 2)
+        input_w = torch.cat([embed_in_w, all_code_w], 2)
         packed_input_w = pack_padded_sequence(input=input_w,
                                               lengths=lengths,
                                               batch_first=True)
@@ -114,30 +81,20 @@ class DecoderRNN(BaseDecoder):
         prob_w = F.log_softmax(cosim_w * self.cfg.embed_temp, 2)
         #_, id_w = torch.max(cosim_w, 2)
 
-        result_t = self.packer_t.new(embed_out_t, prob_t)
-        result_w = self.packer_w.new(embed_out_w, prob_w)
+        return self.packer_w.new(embed_out_w, prob_w)
 
-        return result_t, result_w
-
-    def _decode_fr(self, code_t, code_w, max_len):
-        code_t = code_t.unsqueeze(1)
+    def _decode_fr(self, code_w, max_len):
         code_w = code_w.unsqueeze(1)
-        batch_size = code_t.size(0)
+        batch_size = code_w.size(0)
 
         # <sos>
-        sos_t = self._get_sos_batch(batch_size, self.vocab_w)
-        sos_w = self._get_sos_batch(batch_size, self.vocab_t)
-        embed_in_t = self.embed_t(sos_t)
+        sos_w = self._get_sos_batch(batch_size, self.vocab_w)
         embed_in_w = self.embed_w(sos_w)
         # sos_embedding : [batch_size, 1, embedding_size]
-
-        state_t = self._init_hidden(batch_size, self.cfg.hidden_size_t)
         state_w = self._init_hidden(batch_size, self.cfg.hidden_size_w)
 
         # unroll
-        all_embed_t = []  # for differentiable input of discriminator
-        all_prob_t = []
-        all_embed_w = []
+        all_embed_w = [] # for differentiable input of discriminator
         all_prob_w = []  # for grad norm scaling
 
         finished = torch.ByteTensor(batch_size, 1).zero_()
@@ -145,51 +102,31 @@ class DecoderRNN(BaseDecoder):
                           Variable(finished, requires_grad=False))
 
         for i in range(max_len + 1):  # for each step
-            # POS tagger
-            input_t = torch.cat([embed_in_t, code_t], 2)
-            output_t, state_t = self.tagger(input_t, state_t)
-            embed_out_t = self.linear_t(output_t)
-            cosim_t = self._compute_cosine_sim(embed_out_t, self.embed_t.embed)
-            prob_t = F.log_softmax(cosim_t * self.cfg.embed_temp, 2)
-            _, id_t = torch.max(cosim_t, 2)
-            embed_in_t = self.embed_t(id_t)
-            #embed_in_t = embed_out_t
-
             # Decoder
-            embed_out_t_d = Variable(embed_out_t.data, requires_grad=False)
-            input_w = torch.cat([embed_out_t_d, embed_in_w, code_w], 2)
+            input_w = torch.cat([embed_in_w, code_w], 2)
             output_w, state_w = self.decoder(input_w, state_w)
             embed_out_w = self.linear_w(output_w)
             cosim_w = self._compute_cosine_sim(embed_out_w, self.embed_w.embed)
             prob_w = F.log_softmax(cosim_w * self.cfg.embed_temp, 2)
             _, id_w = torch.max(cosim_w, 2)
+            # if eos token has already appeared, fill zeros
+            id_w, embed_out_w, finished = \
+                self._pads_after_eos(id_w, embed_out_w, finished)
+            # NOTE : words_prob is not considered here
+
             embed_in_w = self.embed_w(id_w)
             #embed_in_w = embed_out_w
 
-            # if eos token has already appeared, fill zeros
-            # words_id, words_embed, finished = \
-            #     self._pads_after_eos(words_id, words_embed, finished)
-            # NOTE : words_prob is not considered here
-
             # append generated token ids & outs at each step
-            all_embed_t.append(embed_out_t)
-            all_prob_t.append(prob_t)
             all_embed_w.append(embed_out_w)
             all_prob_w.append(prob_w)
-            #all_words_id.append(words_id)
-            #all_tags.append(tags)
 
         # concatenate all the results
-        embed_t = torch.cat(all_embed_t, 1)
-        prob_t = torch.cat(all_prob_t, 1)
         # words_id = torch.cat(all_words_id, 1)
         embed_w = torch.cat(all_embed_w, 1)
         prob_w = torch.cat(all_prob_w, 1)
 
-        result_t = self.packer_t.new(embed_out_t, prob_t)
-        result_w = self.packer_w.new(embed_out_w, prob_w)
-
-        return result_t, result_w
+        return self.packer_w.new(embed_w, prob_w)
 
     def _init_weights(self):
         # unifrom initialization in the range of [-0.1, 0.1]
@@ -226,8 +163,8 @@ class DecoderRNN(BaseDecoder):
 
     def _pads_after_eos(self, ids, out, finished):
         # zero ids after eos
-        assert(self.vocab.PAD_ID == 0)
-        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
+        assert(self.vocab_w.PAD_ID == 0)
+        finished = finished + ids.eq(self.vocab_w.EOS_ID).byte()
         ids_mask = finished.eq(0)
         ids = ids * ids_mask.long()
         out_mask = ids_mask.unsqueeze(2).expand_as(out)
@@ -237,7 +174,7 @@ class DecoderRNN(BaseDecoder):
     def _pad_ids_after_eos(self, ids, finished):
         # zero ids after eos
         assert(self.vocab.PAD_ID == 0)
-        finished = finished + ids.eq(self.vocab.EOS_ID).byte()
+        finished = finished + ids.eq(self.vocab_w.EOS_ID).byte()
         ids_mask = finished.eq(0)
         ids = ids * ids_mask.long()
         return ids, finished

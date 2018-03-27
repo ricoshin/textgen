@@ -49,7 +49,7 @@ parser.add_argument('--hidden_size_t', type=int, default=50,
                     help='number of tagger hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.2,
+parser.add_argument('--noise_radius', type=float, default=0.0,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
@@ -85,7 +85,7 @@ parser.add_argument('--disc_s_in', type=str, default='embed',
                     help='disc_s input type')
 parser.add_argument('--enc_disc', type=str2bool, default=True,
                     help='weight sharing between encoder and disc_s')
-parser.add_argument('--pos_tag', type=str2bool, default=True,
+parser.add_argument('--pos_tag', type=str2bool, default=False,
                     help='determine whether the model use POS tags')
 
 # Training Arguments

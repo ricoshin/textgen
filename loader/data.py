@@ -67,15 +67,15 @@ class BatchCollator(object):
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
-            batch_max_len = self.cfg.max_len #max(lengths) #NOTE CNN/RNN
+            batch, lengths = self._length_sort(batch, lengths)
 
         for tokens in batch:
             # pad & sos/eos
             num_pads = batch_max_len - len(tokens)
             pads = [self.vocab.PAD_ID] * num_pads
             x = tokens + pads
-            y = tokens + pads
-            #y = tokens + [self.vocab.EOS_ID] + pads
+            #y = tokens + pads
+            y = tokens + [self.vocab.EOS_ID] + pads
 
             source.append(x)
             target.append(y)
@@ -154,7 +154,7 @@ class Batch(object):
         self.len = length
 
     @property
-    def max_len(self):
+    def maxlen(self):
         return max(self.len)
 
     def variable(self, volatile=False):

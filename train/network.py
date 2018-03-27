@@ -22,8 +22,8 @@ log = logging.getLogger('main')
 
 
 class Network(object):
-    """Instances of specific classes set as attributes in this classes
-    will automatically be updated to predefined dictionaries as below:
+    """Instances of specific classes set as attributes in Network class
+    will automatically be updated to the dictionaries as below:
 
     loader.corpus DataScheduler -> self._batch_schedulers
     torch.nn.Module -> self._modules
@@ -63,7 +63,7 @@ class Network(object):
         if cfg.pos_tag:
             collator = POSBatchCollator(cfg, vocab_word, vocab_tag)
         else:
-            collator = BatchCollator(cfg, vocab)
+            collator = BatchCollator(cfg, vocab_word)
 
         self.data_train = MyDataLoader(corpus, cfg.batch_size, shuffle=True,
                                        num_workers=0, collate_fn=collator,
@@ -81,18 +81,12 @@ class Network(object):
         cfg = self.cfg
 
         # NOTE remove later!
-        self.vocab_t._embed_init = None
-        self.vocab_t.embed_size = cfg.embed_size_t
-        self.vocab_t._generate_embedding()
-
-        self.embed_t = Embedding(cfg, self.vocab_t)
         self.embed_w = Embedding(cfg, self.vocab_w)  # Word embedding
         self.enc = EncoderCNN(cfg)  # Encoder
         self.reg = CodeSmoothingRegularizer(cfg)  # Code regularizer
-        self.dec = DecoderRNN(cfg, self.embed_w, self.embed_t)  # Decoder
+        self.dec = DecoderRNN(cfg, self.embed_w)  # Decoder
         self.gen = Generator(cfg)  # Generator
-        self.disc_t = CodeDiscriminator(cfg, self.cfg.hidden_size_t)  # Syntactic D
-        self.disc_w = CodeDiscriminator(cfg, self.cfg.hidden_size_w)  # Semantic D
+        self.disc = CodeDiscriminator(cfg)  # Discriminator
 
         self._print_modules_info()
         if cfg.cuda:
@@ -108,15 +102,13 @@ class Network(object):
                                                 lr=self.cfg.lr_gan_d,
                                                 betas=(self.cfg.beta1, 0.999))
         # Optimizers
-        self.optim_embed_t = optim_ae(self.embed_t)
         self.optim_embed_w = optim_ae(self.embed_w)
         self.optim_enc = optim_ae(self.enc)
         self.optim_dec = optim_ae(self.dec)
         self.optim_reg_ae = optim_ae(self.reg)
         self.optim_reg_gen = optim_gen(self.reg)
         self.optim_gen = optim_gen(self.gen)
-        self.optim_disc_t = optim_disc(self.disc_t)
-        self.optim_disc_w = optim_disc(self.disc_w)
+        self.optim_disc = optim_disc(self.disc)
 
     def _print_modules_info(self):
         for name, module in self.registered_modules():

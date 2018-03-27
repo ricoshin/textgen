@@ -80,7 +80,7 @@ class EncoderCNN(BaseEncoder):
             else:
                 x = conv(x)
 
-        code = x.squeeze()
+        code = x.squeeze(2).squeeze(2) # batch size could be 1
         assert(len(code.size()) == 2)
 
         return code # [bsz, hidden_size]
