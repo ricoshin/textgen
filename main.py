@@ -3,8 +3,8 @@ import os
 
 from loader.data import CorpusDataset, CorpusPOSDataset
 from loader.process import process_main_corpus, process_corpus_tag
-from test.test import test
-from train.train_cnn import Trainer
+from test.test import Tester
+from train.train import Trainer
 from train.network import Network
 from utils.parser import parser
 from utils.utils import Config, set_logger, prepare_paths
@@ -31,22 +31,22 @@ if __name__ == '__main__':
     #     corpus = CorpusPOSDataset(cfg.corpus_data_path,
     #                               cfg.pos_data_path)
     if cfg.pos_tag:
-        vocab, vocab_pos = process_corpus_tag(cfg)
+        vocab, vocab_tag = process_corpus_tag(cfg)
         corpus = CorpusPOSDataset(cfg.corpus_data_path,
                                   cfg.pos_data_path)
     else:
         vocab = process_main_corpus(cfg)
-        vocab_pos = None
+        vocab_tag = None
         corpus = CorpusDataset(cfg.corpus_data_path)
 
     # Build network
-    net = Network(cfg, corpus, vocab, vocab_pos)
+    net = Network(cfg, corpus, vocab, vocab_tag)
 
     # Train
     if not cfg.test:
         Trainer(net)
     # Test
     else:
-        test(net)
+        Tester(net)
 
     log.info('End of program.')

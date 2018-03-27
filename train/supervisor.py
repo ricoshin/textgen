@@ -17,20 +17,22 @@ class TrainingSupervisor(object):
         self.result = result_writer
 
         # NOTE : Fix later!
-        interval_train = 500
-        interval_eval = 500
+        interval_train = 100
+        interval_eval = 100
 
         self.interval_func_train = {
             self._log_scalar_and_text: interval_train,
             self._save_scalar_and_text: interval_train,
             #self._save_data_and_module: interval_train,
+            # self._save_data_and_module: interval_train,
+            # self._save_embedding: interval_train,
             }
 
         self.interval_func_eval = {
             self._log_scalar_and_text: interval_eval,
             self._save_scalar_and_text: interval_eval,
             self._save_data_and_module: interval_eval,
-            self._save_embedding: 1000,
+            self._save_embedding: interval_eval,
             }
 
         self.interval_func_global = {

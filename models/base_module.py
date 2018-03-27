@@ -38,45 +38,10 @@ class BaseModule(nn.Module):
 class BaseAutoencoder(BaseModule):
     def __init__(self):
         super(BaseAutoencoder, self).__init__()
-        self.eps = 1e-12
-        self._grad_norm = None
         self.cfg = None # placeholder
-
-    @property
-    def grad_norm(self):
-        if self._grad_norm is None:
-            raise Exception("No saved gradient norm!")
-        return self._grad_norm
 
     def forward(self, *input):
         raise NotImplementedError
-
-    def save_ae_grad_norm_hook(self, grad):
-        norm = torch.norm(grad, p=2, dim=1)
-        self._grad_norm = norm.detach().data.mean() + self.eps
-        return grad
-
-    def scale_disc_grad_hook(self, grad):
-        if isinstance(self, BaseEncoder):
-            m_type = 'encoder'
-            factor = -math.fabs(self.cfg.gan_to_enc)
-        elif isinstance(self, BaseDecoder):
-            m_type = 'decoder'
-            factor = math.fabs(self.cfg.gan_to_dec)
-        else:
-            raise Exception("scale_disc_grad_hook is expected to be called by "
-                            "BaseEncoder or BaseDecoder instance!")
-
-        gan_norm = torch.norm(grad, p=2, dim=1)
-        gan_norm = gan_norm.detach().data.mean()
-
-        if gan_norm == .0:
-            gan_norm += + self.eps
-            #log.warning("zero gan norm to %s!" % m_type)
-
-        normed_grad = grad * self.grad_norm / gan_norm
-        normed_grad *= factor
-        return normed_grad
 
     def clip_grad_norm(self):
         nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
@@ -90,6 +55,12 @@ class BaseEncoder(BaseAutoencoder):
         self.noise_radius = cfg.noise_radius
         self._is_add_noise = False
 
+        last_size = cfg.hidden_size_w + cfg.hidden_size_t
+        self.code_t = nn.Linear(cfg.hidden_size_w + cfg.hidden_size_t,
+                                cfg.hidden_size_t)
+        self.code_w = nn.Linear(cfg.hidden_size_w + cfg.hidden_size_t,
+                                cfg.hidden_size_w)
+
     def with_noise(self, *inputs):
         self._is_add_noise = True
         return self.__call__(*inputs)
@@ -97,15 +68,21 @@ class BaseEncoder(BaseAutoencoder):
     def forward(self, *inputs):
         code = self._encode(*inputs)
 
+        code_t = self.code_t(code)
+        code_w = self.code_w(code)
+
         # normalization
-        code = self._normalize(code)
+        if self.cfg.code_norm:
+            code_t = self._normalize(code_t)
+            code_w = self._normalize(code_w)
 
         # unit gaussian noise
         if self._is_add_noise and self.noise_radius > 0:
-            code = self._add_gaussian_noise_to(code)
+            code_t = self._add_gaussian_noise_to(code_t)
+            code_w = self._add_gaussian_noise_to(code_w)
             self._is_add_noise = False # back to default
 
-        return code
+        return code_t, code_w
 
     def _add_gaussian_noise_to(self, code):
         # gaussian noise

@@ -16,7 +16,7 @@ from models.decoder import DecoderRNN, DecoderCNN
 from models.disc_code import CodeDiscriminator
 from models.generator import Generator
 from models.disc_sample import SampleDiscriminator
-from nn.embedding import WordEmbedding
+from nn.embedding import Embedding
 
 log = logging.getLogger('main')
 
@@ -29,12 +29,12 @@ class Network(object):
     torch.nn.Module -> self._modules
 
     """
-    def __init__(self, cfg, corpus, vocab, vocab_pos=None):
+    def __init__(self, cfg, corpus, vocab_word, vocab_tag=None):
         self.cfg = cfg
         self.corpus = corpus
-        self.vocab = vocab
-        self.vocab_pos = vocab_pos
-        self.ntokens = len(vocab)
+        self.vocab_w = vocab_word
+        self.vocab_t = vocab_tag
+        self.ntokens = len(vocab_word)
 
         self._modules = OrderedDict()
         self._batch_schedulers = OrderedDict()
@@ -57,11 +57,11 @@ class Network(object):
     def _build_dataset(self):
         cfg = self.cfg
         corpus = self.corpus
-        vocab = self.vocab
-        vocab_pos = self.vocab_pos
+        vocab_word = self.vocab_w
+        vocab_tag = self.vocab_t
 
         if cfg.pos_tag:
-            collator = POSBatchCollator(cfg, vocab, vocab_pos)
+            collator = POSBatchCollator(cfg, vocab_word, vocab_tag)
         else:
             collator = BatchCollator(cfg, vocab)
 
@@ -80,12 +80,19 @@ class Network(object):
     def _build_network(self):
         cfg = self.cfg
 
-        self.embed = WordEmbedding(cfg, self.vocab) # Word embedding
-        self.enc = EncoderCNN(cfg) # Encoder
-        self.reg = CodeSmoothingRegularizer(cfg) # Code regularizer
-        self.dec = DecoderCNN(cfg, self.embed) # Decoder
-        self.gen = Generator(cfg) # Generator
-        self.disc_c = CodeDiscriminator(cfg) # Discriminator - code level
+        # NOTE remove later!
+        self.vocab_t._embed_init = None
+        self.vocab_t.embed_size = cfg.embed_size_t
+        self.vocab_t._generate_embedding()
+
+        self.embed_t = Embedding(cfg, self.vocab_t)
+        self.embed_w = Embedding(cfg, self.vocab_w)  # Word embedding
+        self.enc = EncoderCNN(cfg)  # Encoder
+        self.reg = CodeSmoothingRegularizer(cfg)  # Code regularizer
+        self.dec = DecoderRNN(cfg, self.embed_w, self.embed_t)  # Decoder
+        self.gen = Generator(cfg)  # Generator
+        self.disc_t = CodeDiscriminator(cfg, self.cfg.hidden_size_t)  # Syntactic D
+        self.disc_w = CodeDiscriminator(cfg, self.cfg.hidden_size_w)  # Semantic D
 
         self._print_modules_info()
         if cfg.cuda:
@@ -101,14 +108,15 @@ class Network(object):
                                                 lr=self.cfg.lr_gan_d,
                                                 betas=(self.cfg.beta1, 0.999))
         # Optimizers
-        self.optim_embed = optim_ae(self.embed)
+        self.optim_embed_t = optim_ae(self.embed_t)
+        self.optim_embed_w = optim_ae(self.embed_w)
         self.optim_enc = optim_ae(self.enc)
         self.optim_dec = optim_ae(self.dec)
         self.optim_reg_ae = optim_ae(self.reg)
         self.optim_reg_gen = optim_gen(self.reg)
-        self.optim_gen_s = optim_gen(self.dec)
-        self.optim_gen_c = optim_gen(self.gen)
-        self.optim_disc_c = optim_disc(self.disc_c)
+        self.optim_gen = optim_gen(self.gen)
+        self.optim_disc_t = optim_disc(self.disc_t)
+        self.optim_disc_w = optim_disc(self.disc_w)
 
     def _print_modules_info(self):
         for name, module in self.registered_modules():

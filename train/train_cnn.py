@@ -88,7 +88,7 @@ class Trainer(object):
         decoded.embed.register_hook(self.net.dec.save_ae_grad_norm_hook)
 
         # Compute word prediction loss and accuracy
-        prob_flat = decoded.prob.view(-1, self.cfg.vocab_size)
+        prob_flat = decoded.prob.view(-1, self.cfg.vocab_size_w)
         #import pdb; pdb.set_trace()
         loss = self.net.dec.criterion_nll(prob_flat, batch.tar)
 
@@ -128,7 +128,7 @@ class Trainer(object):
 
         # Compute word prediction loss and accuracy
         masked_output, masked_target = \
-            mask_output_target(decoded.prob, batch.tar, self.cfg.vocab_size)
+            mask_output_target(decoded.prob, batch.tar, self.cfg.vocab_size_w)
         loss = self.net.dec.criterion_nll(masked_output, masked_target)
         _, max_ids = torch.max(masked_output, 1)
         acc = torch.mean(max_ids.eq(masked_target).float())
@@ -138,49 +138,6 @@ class Trainer(object):
             code_var=code_var_embed,
             loss=loss.data[0],
             acc=acc.data[0],
-            cosim=cos_sim.data[0],
-            var=self.net.reg.var,
-            noise=self.net.enc.noise_radius,
-            text=decoded.get_text_with_target(batch.src),
-            ))
-
-    def _eval_autoencoder_noise(self, batch, decode_mode, name='AE_eval'):
-        name += ('/' + decode_mode)
-        self.net.set_modules_train_mode(False)
-
-        # Build graph
-        embed = self.net.embed(batch.src)
-        code = self.net.enc(embed, batch.len)
-        code_noise = self.net.enc.with_noise(embed)
-        cos_sim = F.cosine_similarity(code, code_noise, dim=1).mean()
-
-        if decode_mode == 'tf':
-            decoded = self.net.dec.teacher_forcing(code, batch)
-            decoded_n = self.net.dec.teacher_forcing(code_noise, batch)
-        elif decode_mode == 'fr':
-            decoded = self.net.dec.free_running(code, max(batch.len))
-            decoded_n = self.net.dec.free_running(code_noise, max(batch.len))
-        else:
-            raise Exception("Unknown decode_mode type!")
-
-        decoded.set_autoencoder_target(batch)
-        code_embed = ResultWriter.Embedding(
-            embed=code.data, text=decoded.get_text_batch())
-        code_noise_embed = ResultWriter.Embedding(
-            embed=code_noise.data, text=decoded_n.get_text_batch())
-
-        # Compute word prediction loss and accuracy
-        masked_output, masked_target = \
-            mask_output_target(decoded.prob, batch.tar, self.cfg.vocab_size)
-        loss_word = self.net.dec.criterion_nll(masked_output, masked_target)
-        _, max_ids = torch.max(masked_output, 1)
-        acc_word = torch.mean(max_ids.eq(masked_target).float())
-
-        self.result.add(name, odict(
-            code=code_embed,
-            code_noise=code_noise_embed,
-            loss=loss_word.data[0],
-            acc=acc_word.data[0],
             cosim=cos_sim.data[0],
             var=self.net.reg.var,
             noise=self.net.enc.noise_radius,

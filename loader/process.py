@@ -33,15 +33,16 @@ def process_main_corpus(cfg):
         if cfg.load_glove:
             print('Loading GloVe pretrained embeddings...')
             glove_proc = GloveMultiProcessor(glove_dir=cfg.glove_dir,
-                                             vector_size=cfg.word_embed_size)
+                                             vector_size=cfg.embed_size_w)
             word2vec = glove_proc.process()
         else:
             word2vec = None
 
-        vocab = Vocab(counter=counter, max_size=cfg.vocab_size,
+        vocab = Vocab(counter=counter,
+                      embed_size=cfg.embed_size_w,
+                      embed_init=word2vec,
+                      max_size=cfg.vocab_size_w,
                       specials=['<pad>', '<sos>', '<eos>', '<unk>'])
-        vocab.generate_embedding(embed_dim=cfg.word_embed_size,
-                                 init_embed=word2vec)
         sents = vocab.words2ids_batch(sents)
 
         with StopWatch('Saving text (Main corpus)'):
@@ -71,8 +72,9 @@ def process_pos_corpus(cfg):
         tags, tag_counter = tag_proc.process()
 
         # make vocab
-        tags_vocab = Vocab(counter=tag_counter, specials=['<eos>'])
-        tags_ids = tags_vocab.words2ids_batch(tags)
+        tags_vocab = Vocab(counter=tag_counter,
+                           embed_size=cfg.embed_size_t,
+                           specials=['<eos>'])
 
         with StopWatch('Saving text (POS tagging corpus)'):
             np.savetxt(cfg.pos_data_path, tags_ids, fmt="%s")
@@ -114,22 +116,24 @@ def process_corpus_tag(cfg):
         if cfg.load_glove:
             print('Loading GloVe pretrained embeddings...')
             glove_proc = GloveMultiProcessor(glove_dir=cfg.glove_dir,
-                                             vector_size=cfg.word_embed_size)
+                                             vector_size=cfg.embed_size_w)
             word2vec = glove_proc.process()
         else:
             word2vec = None
 
         # build sentence vocabulary & convert tokens to ids
-        token_vocab = Vocab(counter=token_cnt, max_size=cfg.vocab_size,
+        token_vocab = Vocab(counter=token_cnt,
+                            embed_size=cfg.embed_size_w,
+                            embed_init=word2vec,
+                            max_size=cfg.vocab_size_w,
                             specials=['<pad>', '<sos>', '<eos>', '<unk>'])
-        token_vocab.generate_embedding(embed_dim=cfg.word_embed_size,
-                                       init_embed=word2vec)
         token_ids = token_vocab.words2ids_batch(tokens)
-        cfg.vocab_size = len(token_vocab)
+        cfg.vocab_size_w = len(token_vocab)
 
         # build tag vocabulary & convert tags to ids
-        tag_vocab = Vocab(counter=tag_cnt, specials=['<pad>', '<sos>', '<eos>'])
-        # tag_vocab.generate_embedding(embed_dim=cfg.tag_embed_size)
+        tag_vocab = Vocab(counter=tag_cnt,
+                          embed_size=cfg.embed_size_t,
+                          specials=['<pad>', '<sos>', '<eos>'])
         tags_ids = tag_vocab.words2ids_batch(tags)
 
         with StopWatch('Saving text (Main corpus)'):
@@ -167,7 +171,10 @@ def process_pos_corpus_with_main_vocab(cfg, main_vocab):
 
         tag_proc = CorpusMultiProcessor(file_path=cfg.pos_tag_path)
         tags, tag_counter = tag_proc.process()
-        tags_vocab = Vocab(counter=tag_counter, specials=['<eos>'])
+        tags_vocab = Vocab(counter=tag_counter,
+                           embed_size=cfg.embed_size_t,
+                           embed_init=word2vec,
+                           specials=['<eos>'])
         tags_ids = tags_vocab.words2ids_batch(tags)
 
         with StopWatch('Saving text (POS tagging corpus)'):

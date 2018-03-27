@@ -7,7 +7,6 @@ from torch.autograd import Variable
 import torch.nn.functional as F
 
 from nn.attention import MultiLinear4D, WordAttention, LayerAttention
-from nn.embedding import WordEmbedding
 from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
@@ -121,7 +120,7 @@ class EncoderDisc(BaseAutoencoder):
         elif in_embed.size(1) > self.cfg.max_len:
             in_embed = in_embed[:, :self.cfg.max_len, :]
 
-        # [bsz, word_embed_size, 1, max_len]
+        # [bsz, embed_size_w, 1, max_len]
         x = x_in = in_embed.permute(0, 2, 1).unsqueeze(2)
 
         # generate mask for wordwise attention
@@ -213,7 +212,7 @@ class EncoderDisc(BaseAutoencoder):
             return tensor
 
     def _generate_pad_masks(self, x):
-        # [bsz, word_embed_size, 1, max_len]
+        # [bsz, embed_size_w, 1, max_len]
         x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False)
         # [bsz, 1, 1, max_len]
         masks = []

@@ -8,7 +8,6 @@ import torch.nn.functional as F
 
 from models.base_module import BaseModule
 from nn.attention import MultiLinear4D, WordAttention, LayerAttention
-from nn.embedding import WordEmbedding
 from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
@@ -22,7 +21,7 @@ class SampleDiscriminator(BaseModule):
         # Step represetation can be :
         #   - hidden states which each word is generated from
         #   - embeddings that were porduced from generated word indices
-        # inputs.size() : [batch_size(N), 1(C), max_len(H), word_embed_size(W)]
+        # inputs.size() : [batch_size(N), 1(C), max_len(H), embed_size_w(W)]
         self.cfg = cfg
         self.in_c = in_chann = self._get_in_c_size()
         if cfg.disc_s_in == 'embed':
@@ -102,8 +101,8 @@ class SampleDiscriminator(BaseModule):
         #self.criterion_cs = F.cosine_similarity()
 
     def forward(self, x):
-        x = self._adaptive_embedding(x) # [bsz, max_len, word_embed_size]
-        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, word_embed_size, 1, max_len]
+        x = self._adaptive_embedding(x) # [bsz, max_len, embed_size_w]
+        x = x.permute(0, 2, 1).unsqueeze(2) # [bsz, embed_size_w, 1, max_len]
 
         # generate mask for wordwise attention
         pad_masks = self._generate_pad_masks(x)
@@ -159,14 +158,14 @@ class SampleDiscriminator(BaseModule):
 
     def _get_in_c_size(self):
         if self.cfg.disc_s_in == 'embed':
-            return self.cfg.word_embed_size
+            return self.cfg.embed_size_w
         elif self.cfg.disc_s_in == 'hidden':
             return self.cfg.hidden_size
         else:
             raise Exception("Unknown disc input type!")
 
     def _generate_pad_masks(self, x):
-        # [bsz, word_embed_size, 1, max_len]
+        # [bsz, embed_size_w, 1, max_len]
         x = Variable(x.data[:, 0].unsqueeze(1), requires_grad=False)
         # [bsz, 1, 1, max_len]
         masks = []

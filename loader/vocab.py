@@ -11,11 +11,20 @@ log = logging.getLogger('main')
 
 
 class Vocab(object):
-    def __init__(self, counter, specials=None, max_size=None, min_freq=None):
+    def __init__(self, counter, embed_size, embed_init=None,
+                 specials=None, max_size=None, min_freq=None):
         log.info('\nBuilding vocabulary...')
         self.word2idx = dict()
         self.idx2word = list()
         self._embed = None
+        self.embed_size = embed_size
+
+        if embed_init is not None:
+            assert len(embed_init[0]) == embed_size
+            self._embed_init = embed_init
+        else:
+            self._embed_init = None
+
         self._update_id_attr(specials)
 
         if specials:
@@ -46,7 +55,7 @@ class Vocab(object):
             self.idx2word.append(word)
             self.word2idx[word] = len(self.idx2word) - 1
 
-        vocab_size = len(self)
+        self._generate_embedding()
 
     def __len__(self):
         return len(self.word2idx)
@@ -65,16 +74,16 @@ class Vocab(object):
         else:
             return self._embed
 
-    def generate_embedding(self, embed_dim, init_embed=None):
+    def _generate_embedding(self):
         # standard gaussian distribution initialization
-        self._embed = np.random.normal(size=(len(self), embed_dim))
+        self._embed = np.random.normal(size=(len(self), self.embed_size))
 
-        if init_embed is not None:
+        if self._embed_init is not None:
             for word, idx in self.word2idx.items():
-                self._embed[idx] = init_embed.get(word, self._embed[idx])
+                self._embed[idx] = self._embed_init.get(word, self._embed[idx])
         # embedding of <pad> token should be zero
         if self.idx2word[self.PAD_ID] in self.word2idx.keys():
-            #self._embed[self.PAD_ID] = 0
+            #self._embed[self.PAD_ID] = 0 # NOTE
             pass
 
     def ids2text_batch(self, ids_batch):
@@ -90,8 +99,10 @@ class Vocab(object):
 
     def ids2text(self, ids):
         words = []
+        eos = self.idx2word[self.EOS_ID]
+        pad = self.idx2word[self.PAD_ID]
         for word in self.ids2words(ids):
-            if word == self.idx2word[self.PAD_ID]:
+            if word in [eos, pad]:
                 break
             else:
                 words.append(word)

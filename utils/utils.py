@@ -143,7 +143,7 @@ def prepare_paths(cfg):
 
     # main corpus filepath
     if cfg.small:
-        cfg.word_embed_size = 50
+        cfg.embed_size_w = 50
 
     if cfg.data_name == "books":
         if cfg.small:

@@ -10,6 +10,36 @@ from utils.utils import to_gpu
 log = logging.getLogger('main')
 
 
+class GradientScalingHooker(object):
+    def __init__(self, scale_factor):
+        self._eps = 1e-12
+        self._factor = scale_factor
+        self._grad_norm = None
+
+    @property
+    def grad_norm(self):
+        if self._grad_norm is None:
+            raise Exception("No saved gradient norm!")
+        return self._grad_norm
+
+    def save_grad_norm(self, grad):
+        norm = torch.norm(grad, p=2, dim=1)
+        self._grad_norm = norm.detach().data.mean() + self._eps
+        return grad
+
+    def scale_grad_norm(self, grad):
+        gan_norm = torch.norm(grad, p=2, dim=1)
+        gan_norm = gan_norm.detach().data.mean()
+
+        if gan_norm == .0:
+            gan_norm += + self.eps
+            #log.warning("zero gan norm to %s!" % m_type)
+
+        normed_grad = grad * self.grad_norm / gan_norm
+        normed_grad *= self._factor
+        return normed_grad
+
+
 def mask_output_target(output, target, ntokens):
     # Create sentence length mask over padding
     target_mask = target.gt(0) # greater than 0

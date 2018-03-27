@@ -18,7 +18,7 @@ class Generator(BaseModule):
         # z_size(in) --(layer1)-- 300 --(layer2)-- 300 --(layer3)-- nhidden(out)
         self.cfg = cfg
         ninput = cfg.z_size
-        noutput = cfg.hidden_size
+        noutput = cfg.hidden_size_w + cfg.hidden_size_t
 
         activation = nn.LeakyReLU(0.2)
         layer_sizes = [ninput] + [int(x) for x in cfg.arch_g.split('-')]
@@ -39,16 +39,18 @@ class Generator(BaseModule):
             self.layers.append(activation)
             self.add_module("activation"+str(i+1), activation)
 
-        # last linear layer
-        layer = nn.Linear(layer_sizes[-1], noutput)
-        self.layers.append(layer)
-        self.add_module("layer"+str(len(layer_sizes)), layer) # bug fix
+        # # last linear layer
+        # layer = nn.Linear(layer_sizes[-1], noutput)
+        # self.layers.append(layer)
+        # self.add_module("layer"+str(len(layer_sizes)), layer) # bug fix
+
+        self.code_t = nn.Linear(layer_sizes[-1], cfg.hidden_size_t)
+        self.code_w = nn.Linear(layer_sizes[-1], cfg.hidden_size_w)
 
         # last activation
         # layer = nn.Tanh()
         # self.layers.append(layer)
         # self.add_module("activation"+str(len(layer_sizes)), layer)
-
 
         # Generator(
         #     (layer1): Linear(in_features=z_size, out_features=300)
@@ -72,7 +74,11 @@ class Generator(BaseModule):
         x = noise
         for i, layer in enumerate(self.layers):
             x = layer(x)
-        return x
+
+        code_t = self.code_t(x)
+        code_w = self.code_w(x)
+
+        return code_t, code_w
 
     def _init_weights(self):
         # Initialization with Gaussian distribution: N(0, 0.02)

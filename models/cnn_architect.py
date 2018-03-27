@@ -9,6 +9,7 @@ import torch.nn.functional as F
 log = logging.getLogger('main')
 
 
+@unique
 class ConvnetType(Enum):
     ENCODER_ONLY = 0 # NOTE: redundant for now
     AUTOENCODER = 1
@@ -53,8 +54,8 @@ class ConvnetArchitect(object):
         self.arch_n_conv = len(self.arch_c) + 1
 
         # Channels : add the first and the last dim
-        n_embed = self.cfg.word_embed_size
-        n_hidden = self.cfg.hidden_size
+        n_embed = self.cfg.embed_size_w
+        n_hidden = self.cfg.hidden_size_w + self.cfg.hidden_size_t
         self.arch_c = [n_embed] + self.arch_c + [n_hidden]
 
         # Widths

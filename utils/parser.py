@@ -37,17 +37,19 @@ parser.add_argument('--load_glove', type=str2bool, default=True,
                     help='initialize embedding matrix using glove')
 
 # Model Arguments
-parser.add_argument('--vocab_size', type=int, default=10000,
+parser.add_argument('--vocab_size_w', type=int, default=10000,
                     help='cut vocabulary down to this size ')
-parser.add_argument('--word_embed_size', type=int, default=300,
+parser.add_argument('--embed_size_w', type=int, default=300,
                     help='size of word embeddings')
-parser.add_argument('--tag_embed_size', type=int, default=100,
-                    help='size of word embeddings')
-parser.add_argument('--hidden_size', type=int, default=300,
-                    help='number of hidden units per layer')
+parser.add_argument('--embed_size_t', type=int, default=50,
+                    help='size of tag embeddings')
+parser.add_argument('--hidden_size_w', type=int, default=100,
+                    help='number of decoder hidden units per layer')
+parser.add_argument('--hidden_size_t', type=int, default=50,
+                    help='number of tagger hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.0,
+parser.add_argument('--noise_radius', type=float, default=0.2,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
@@ -83,7 +85,7 @@ parser.add_argument('--disc_s_in', type=str, default='embed',
                     help='disc_s input type')
 parser.add_argument('--enc_disc', type=str2bool, default=True,
                     help='weight sharing between encoder and disc_s')
-parser.add_argument('--pos_tag', type=str2bool, default=False,
+parser.add_argument('--pos_tag', type=str2bool, default=True,
                     help='determine whether the model use POS tags')
 
 # Training Arguments

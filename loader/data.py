@@ -112,8 +112,8 @@ class POSBatchCollator(BatchCollator):
             # sent and pos length must be the same
             assert(len(sent) == len(tag))
             lengths.append(len(sent))
-        batch_max_len = self.cfg.max_len #max(lengths) #NOTE CNN/RNN
 
+        batch_max_len = max(lengths)
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
             batch, lengths = self._length_sort(batch, lengths)
@@ -124,8 +124,8 @@ class POSBatchCollator(BatchCollator):
             pads = [self.vocab.PAD_ID] * num_pads
             src = sent + pads
             src_tag = tag + pads
-            tar = sent + pads
-            #tar = sent + [self.vocab.EOS_ID] + pads
+            #tar = sent + pads
+            tar = sent + [self.vocab.EOS_ID] + pads
             tar_tag = tag + [self.vocab_pos.EOS_ID] + pads
 
             source.append(src)

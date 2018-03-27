@@ -6,7 +6,6 @@ import torch.nn.functional as F
 from torch.nn.utils.rnn import pack_padded_sequence
 
 from models.base_module import BaseModule, BaseEncoder
-from nn.embedding import WordEmbedding
 from utils.utils import to_gpu
 
 log = logging.getLogger('main')
@@ -16,13 +15,12 @@ class EncoderRNN(BaseEncoder):
     def __init__(self, cfg):
         super(EncoderRNN, self).__init__(cfg)
 
-        # RNN Encoder and Decoder
-        self.encoder = nn.LSTM(input_size=cfg.word_embed_size,
-                               hidden_size=cfg.hidden_size,
+        self.encoder = nn.LSTM(input_size=cfg.embed_size_w,
+                               hidden_size=cfg.hidden_size_w,
                                num_layers=cfg.nlayers,
                                dropout=cfg.dropout,
                                batch_first=True)
-        self.fc_layer = nn.Linear(cfg.hidden_size, 300)
+        #self.fc_layer = nn.Linear(cfg.hidden_size, 300)
         self._init_weights()
 
     def _encode(self, embed_in, lengths):
@@ -37,7 +35,7 @@ class EncoderRNN(BaseEncoder):
         hidden, cell = state # last states (tuple the length of 2)
         code = hidden[-1]  # get hidden state of last layer of encoder
 
-        code = self.fc_layer(code)
+        #code = self.fc_layer(code)
 
         return code # batch_size x hidden_size
 
@@ -73,7 +71,7 @@ class EncoderCNN(BaseEncoder):
         elif embed_in.size(1) > self.cfg.max_len:
             embed_in = embed_in[:, :self.cfg.max_len, :]
 
-        # [bsz, word_embed_size, 1, max_len]
+        # [bsz, embed_size_w, 1, max_len]
         x = x_in = embed_in.permute(0, 2, 1).unsqueeze(2)
 
         for i, conv in enumerate(self.convs):
@@ -103,8 +101,8 @@ class CodeSmoothingRegularizer(BaseModule):
         super(CodeSmoothingRegularizer, self).__init__()
         self.cfg = cfg
         self.is_with_var = True  # default
-        self.fc_mu = nn.Linear(cfg.hidden_size, cfg.hidden_size)
-        self.fc_logvar = nn.Linear(cfg.hidden_size, cfg.hidden_size)
+        self.fc_mu = nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w)
+        self.fc_logvar = nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w)
         self._var = None
 
     @property
