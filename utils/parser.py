@@ -49,12 +49,12 @@ parser.add_argument('--hidden_size_t', type=int, default=50,
                     help='number of tagger hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.0,
+parser.add_argument('--noise_radius', type=float, default=0.1,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
                          'every 100 iterations')
-parser.add_argument('--code_norm', type=str2bool, default=False,
+parser.add_argument('--code_norm', type=str2bool, default=True,
                     help='encoder code normalization')
 parser.add_argument('--hidden_init', action='store_true',
                     help="initialize decoder hidden state with encoder's")
@@ -68,7 +68,7 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_to_enc', type=float, default=1.0,
+parser.add_argument('--gan_to_enc', type=float, default=0.2,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--gan_to_dec', type=float, default=1.0,
                     help='weight factor passing gradient from gan to decoder')
