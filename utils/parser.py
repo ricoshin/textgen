@@ -68,11 +68,11 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_to_enc', type=float, default=0.0,
+parser.add_argument('--gan_to_enc', type=float, default=1.0,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--gan_to_dec', type=float, default=1.0,
                     help='weight factor passing gradient from gan to decoder')
-parser.add_argument('--dropout', type=float, default=0.0,
+parser.add_argument('--dropout', type=float, default=0.5,
                     help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--kernel_sizes', type=str, default='2,3,4',
                     help='kernel sizes of text CNN')

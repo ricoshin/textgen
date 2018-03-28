@@ -20,7 +20,7 @@ class Generator(BaseModule):
         ninput = cfg.z_size
         noutput = cfg.hidden_size_w
 
-        activation = nn.LeakyReLU(0.2)
+        activation = nn.ReLU()
         layer_sizes = [ninput] + [int(x) for x in cfg.arch_g.split('-')]
         self.layers = []
 

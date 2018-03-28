@@ -64,7 +64,7 @@ class EncoderCNN(BaseEncoder):
 
         self.criterion_mse = nn.MSELoss()
 
-    def _encode(self, embed_in, lengths):
+    def _encode(self, embed_in, lengths=None):
         # NOTE : lengths can be used for pad masking
         if embed_in.size(1) < self.cfg.max_len:
             embed_in = self._append_zero_embeds(embed_in)

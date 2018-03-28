@@ -39,7 +39,6 @@ class CodeDiscriminator(BaseModule):
             self.layers.append(layer)
             self.add_module("layer"+str(i+1), layer)
 
-            # No batch normalization after first layer
             if i != 0:
                 bn = nn.BatchNorm1d(layer_sizes[i+1], eps=1e-05, momentum=0.1)
                 self.layers.append(bn)

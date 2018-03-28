@@ -106,6 +106,35 @@ class Trainer(object):
         self.net.optim_reg_ae.step()
         self.net.optim_dec.step()
 
+        # NOTE: new!
+        self.net.set_modules_train_mode(True)
+
+        # real
+        code_real = Variable(code.data, requires_grad=False)
+        code_real_re = self.net.enc(decoded.embed.detach())
+        code_real_sim = F.cosine_similarity(code_real, code_real_re).mean()
+        code_real_sim.backward(retain_graph=True)
+
+        code_real_re.register_hook(self.hooker.scale_grad_norm)
+        self.net.disc.clamp_weights()
+        disc_real = self.net.disc(code_real_re)
+        disc_real.backward(self.pos_one)
+
+        # fake
+        code_fake = self.net.gen.for_train()
+        decoded = self.net.dec.free_running(code_fake, self.cfg.max_len)
+        code_fake_re = self.net.enc(decoded.embed.detach())
+        code_fake_sim = F.cosine_similarity(code_fake, code_fake_re).mean()
+        code_fake_sim.backward(retain_graph=True)
+
+        code_fake_re.register_hook(self.hooker.scale_grad_norm)
+        self.net.disc.clamp_weights()
+        disc_fake = self.net.disc(code_fake_re)
+        disc_fake.backward(self.neg_one)
+
+        self.net.enc.clip_grad_norm()
+        self.net.optim_enc.step()
+
         self.result.add(name, odict(
             loss=loss.data[0],
             acc=acc.data[0],
@@ -185,6 +214,17 @@ class Trainer(object):
         disc_fake.backward(self.pos_one)
         self.net.optim_gen.step()
 
+        # NOTE : new!
+        self.net.set_modules_train_mode(True)
+        code_fake = Variable(code_fake.data, requires_grad=False)
+        decoded_fake = self.net.dec.free_running(code_fake, self.cfg.max_len)
+        code_fake_r = self.net.enc(decoded_fake.embed)
+        disc_fake = self.net.disc(code_fake_r)
+        disc_fake.backward(self.pos_one)
+
+        self.net.dec.clip_grad_norm()
+        self.net.optim_dec.step()
+
         self.result.add(name, odict(
             loss=disc_fake.data[0],
         ))
@@ -201,26 +241,28 @@ class Trainer(object):
         # Grad hook : gradient scaling
         code_real.register_hook(self.hooker.scale_grad_norm)
 
-        # Weight clamping for WGAN
-        self.net.disc.clamp_weights()
+        code_real = Variable(code_real.data, requires_grad=False)
+        code_fake = Variable(code_fake.data, requires_grad=False)
 
+        self.net.disc.clamp_weights()  # Weight clamping for WGAN
         disc_real = self.net.disc(code_real)
-        disc_fake = self.net.disc(code_fake.detach())
+        disc_fake = self.net.disc(code_fake)
         loss_total = disc_real - disc_fake
 
         # WGAN backward
         disc_real.backward(self.pos_one)
         disc_fake.backward(self.neg_one)
+        # loss_total.backward()
+        self.net.optim_disc.step()
 
         # Gradient clipping
-        self.net.embed_w.clip_grad_norm()
-        self.net.enc.clip_grad_norm()
-        self.net.dec.clip_grad_norm()
-
-        self.net.optim_embed_w.step()
-        self.net.optim_enc.step()
+        # self.net.embed_w.clip_grad_norm()
+        # self.net.enc.clip_grad_norm()
+        #
+        # self.net.optim_embed_w.step()
+        # self.net.optim_enc.step()
         # self.net.optim_reg_ae.step()
-        self.net.optim_disc.step()
+
 
         self.result.add(name, odict(
             loss_toal=loss_total.data[0],
@@ -233,7 +275,7 @@ class Trainer(object):
 
         # Build graph
         code_fake = self.net.gen.for_eval()
-        decoded = self.net.dec.free_running(code_fake, self.cfg.max_len)
+        decoded = self.net.dec.tester.free_running(code_fake, self.cfg.max_len)
 
         code_embed = ResultWriter.Embedding(
             embed=code_fake.data,

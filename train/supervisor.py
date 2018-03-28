@@ -17,8 +17,8 @@ class TrainingSupervisor(object):
         self.result = result_writer
 
         # NOTE : Fix later!
-        interval_train = 100
-        interval_eval = 100
+        interval_train = 500
+        interval_eval = 500
 
         self.interval_func_train = {
             self._log_scalar_and_text: interval_train,

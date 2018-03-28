@@ -32,7 +32,7 @@ class GradientScalingHooker(object):
         gan_norm = gan_norm.detach().data.mean()
 
         if gan_norm == .0:
-            gan_norm += + self.eps
+            gan_norm += self._eps
             #log.warning("zero gan norm to %s!" % m_type)
 
         normed_grad = grad * self.grad_norm / gan_norm

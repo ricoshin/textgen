@@ -9,6 +9,7 @@ from torch.autograd import Variable
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 from utils.utils import to_gpu
 from utils.writer import ResultWriter
+from nn.bnlstm import LSTM, BNLSTMCell
 
 log = logging.getLogger('main')
 
@@ -96,6 +97,7 @@ class DecoderRNN(BaseDecoder):
         # unroll
         all_embed_w = [] # for differentiable input of discriminator
         all_prob_w = []  # for grad norm scaling
+        all_id_w = []
 
         finished = torch.ByteTensor(batch_size, 1).zero_()
         finished = to_gpu(self.cfg.cuda,
@@ -120,13 +122,15 @@ class DecoderRNN(BaseDecoder):
             # append generated token ids & outs at each step
             all_embed_w.append(embed_out_w)
             all_prob_w.append(prob_w)
+            all_id_w.append(id_w)
 
         # concatenate all the results
         # words_id = torch.cat(all_words_id, 1)
         embed_w = torch.cat(all_embed_w, 1)
         prob_w = torch.cat(all_prob_w, 1)
+        id_w = torch.cat(all_id_w, 1)
 
-        return self.packer_w.new(embed_w, prob_w)
+        return self.packer_w.new(embed_w, prob_w, id_w)
 
     def _init_weights(self):
         # unifrom initialization in the range of [-0.1, 0.1]
