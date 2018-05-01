@@ -81,7 +81,7 @@ class LineCounter(LargeFileMultiProcessor):
 
 class CorpusMultiProcessor(LargeFileMultiProcessor):
     def __init__(self, file_path, num_process=None, min_len=1, max_len=999,
-                 lower=False, tokenizer='spacy', pos_tagging=False):
+                 lower=True, tokenizer='spacy', pos_tagging=False):
         # skip out too short/long sentences
         self.min_len = min_len
         self.max_len = max_len
@@ -143,10 +143,10 @@ class CorpusMultiProcessor(LargeFileMultiProcessor):
                 line = line.replace(src, dst)
             # tokenize line & count words
             tokens = tokenizer(line.strip())
-            if len(tokens) > self.max_len or len(tokens) < self.min_len:
+            if len(tokens) < self.min_len:
                 return None
             if self.lower:
-                return [token.lower() for token in tokens]
+                return [token.lower() for token in tokens[:self.max_len]]
             else:
                 return tokens
 

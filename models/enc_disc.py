@@ -10,7 +10,7 @@ from nn.attention import MultiLinear4D, WordAttention, LayerAttention
 from utils.writer import ResultWriter
 from utils.utils import to_gpu
 
-from models.base_module import BaseAutoencoder
+from models.base_module import BaseModule
 
 log = logging.getLogger('main')
 
@@ -52,7 +52,7 @@ class EncoderDiscModeWrapper(object):
         self.enc_disc.load_state_dict(load)
 
 
-class EncoderDisc(BaseAutoencoder):
+class EncoderDisc(BaseModule):
     def __init__(self, cfg):
         super(EncoderDisc, self).__init__()
         self.cfg = cfg

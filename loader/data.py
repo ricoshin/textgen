@@ -63,7 +63,13 @@ class BatchCollator(object):
         source = []
         target = []
         lengths = [(len(sample)) for sample in batch]
-        batch_max_len = max(lengths)
+
+        if self.cfg.dec_type == 'cnn':
+            batch_max_len = self.cfg.max_len
+        elif self.cfg.dec_type == 'rnn':
+            batch_max_len = max(lengths)
+        else:
+            raise Exception('Unknown decoder type: %s' % self.cfg.dec_type)
 
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
@@ -74,8 +80,13 @@ class BatchCollator(object):
             num_pads = batch_max_len - len(tokens)
             pads = [self.vocab.PAD_ID] * num_pads
             x = tokens + pads
-            #y = tokens + pads
-            y = tokens + [self.vocab.EOS_ID] + pads
+
+            if self.cfg.dec_type == 'cnn':
+                y = tokens + pads
+            elif self.cfg.dec_type == 'rnn':
+                y = tokens + [self.vocab.EOS_ID] + pads
+            else:
+                raise Exception('Unknown decoder type: %s' % self.cfg.dec_type)
 
             source.append(x)
             target.append(y)
@@ -154,7 +165,7 @@ class Batch(object):
         self.len = length
 
     @property
-    def maxlen(self):
+    def max_len(self):
         return max(self.len)
 
     def variable(self, volatile=False):

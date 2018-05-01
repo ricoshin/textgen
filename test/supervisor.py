@@ -45,7 +45,7 @@ class TestingSupervisor(object):
                             ""% self.cfg.log_dir)
         else:
             self._load_global_step()
-            self.net.load_batch_schedulers()
+            #self.net.load_batch_schedulers()
             self.net.load_modules()
 
     def _load_global_step(self):

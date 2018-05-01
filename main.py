@@ -4,6 +4,7 @@ import os
 from loader.data import CorpusDataset, CorpusPOSDataset
 from loader.process import process_main_corpus, process_corpus_tag
 from test.test import Tester
+from test.visualize import Visualizer
 from train.train import Trainer
 from train.network import Network
 from utils.parser import parser
@@ -30,6 +31,7 @@ if __name__ == '__main__':
     #     vocab_pos = process_pos_corpus(cfg, 'split')
     #     corpus = CorpusPOSDataset(cfg.corpus_data_path,
     #                               cfg.pos_data_path)
+    
     if cfg.pos_tag:
         vocab, vocab_tag = process_corpus_tag(cfg)
         corpus = CorpusPOSDataset(cfg.corpus_data_path,
@@ -43,10 +45,13 @@ if __name__ == '__main__':
     net = Network(cfg, corpus, vocab, vocab_tag)
 
     # Train
-    if not cfg.test:
+    if not (cfg.test or cfg.visualize):
         Trainer(net)
     # Test
     else:
-        Tester(net)
+        if cfg.test:
+            Tester(net)
+        else:
+            Visualizer(net)
 
     log.info('End of program.')

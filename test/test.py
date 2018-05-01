@@ -34,6 +34,7 @@ class TestMode(Enum):
     def start_msg(self):
         return self.name.title() + ' Mode!'
 
+
 class Tester(object):
     def __init__(self, net):
         log.info("Testing start!")

@@ -20,7 +20,6 @@ class Vocab(object):
         self.embed_size = embed_size
 
         if embed_init is not None:
-            assert len(embed_init[0]) == embed_size
             self._embed_init = embed_init
         else:
             self._embed_init = None

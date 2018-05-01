@@ -10,11 +10,12 @@ from torch.utils.data import Dataset, DataLoader
 from loader.data import (BatchCollator, POSBatchCollator, DataScheduler,
                          MyDataLoader)
 
-from models.encoder import EncoderRNN, EncoderCNN, CodeSmoothingRegularizer
+from models.encoder import (EncoderRNN, EncoderCNN, CodeSmoothingRegularizer,
+                            VariationalRegularizer)
 from models.enc_disc import EncoderDiscModeWrapper, EncoderDisc
 from models.decoder import DecoderRNN, DecoderCNN
 from models.disc_code import CodeDiscriminator
-from models.generator import Generator
+from models.generator import Generator, ReversedGenerator
 from models.disc_sample import SampleDiscriminator
 from nn.embedding import Embedding
 
@@ -25,8 +26,9 @@ class Network(object):
     """Instances of specific classes set as attributes in Network class
     will automatically be updated to the dictionaries as below:
 
-    loader.corpus DataScheduler -> self._batch_schedulers
     torch.nn.Module -> self._modules
+    optim.Optimizer -> self._optimizers
+    loader.corpus DataScheduler -> self._batch_schedulers
 
     """
     def __init__(self, cfg, corpus, vocab_word, vocab_tag=None):
@@ -37,6 +39,7 @@ class Network(object):
         self.ntokens = len(vocab_word)
 
         self._modules = OrderedDict()
+        self._optimizers = OrderedDict()
         self._batch_schedulers = OrderedDict()
 
         self._build_dataset()
@@ -49,6 +52,11 @@ class Network(object):
         if isinstance(value, nn.Module):
             self._check_init_by_name('_modules')
             self._modules[name] = value
+
+        if isinstance(value, optim.Optimizer):
+            self._check_init_by_name('_optimizers')
+            name.replace('optim_', '')
+            self._optimizers[name] = value
 
         if isinstance(value, DataScheduler):
             self._check_init_by_name('_batch_schedulers')
@@ -80,13 +88,29 @@ class Network(object):
     def _build_network(self):
         cfg = self.cfg
 
+        if cfg.enc_type == 'cnn':
+            Encoder = EncoderCNN
+        elif cfg.enc_type == 'rnn':
+            Encoder = EncoderRNN
+        else:
+            raise ValueError('Unknown encoder type!')
+
+        if cfg.dec_type == 'cnn':
+            Decoder = DecoderCNN
+        elif cfg.dec_type == 'rnn':
+            Decoder = DecoderRNN
+        else:
+            raise ValueError('Unknown decoder type!')
+
         # NOTE remove later!
         self.embed_w = Embedding(cfg, self.vocab_w)  # Word embedding
-        self.enc = EncoderCNN(cfg)  # Encoder
-        self.reg = CodeSmoothingRegularizer(cfg)  # Code regularizer
-        self.dec = DecoderRNN(cfg, self.embed_w)  # Decoder
+        self.enc = Encoder(cfg)  # Encoder
+        self.reg = VariationalRegularizer(cfg)  # Code regularizer
+        self.dec = Decoder(cfg, self.embed_w)  # Decoder
         self.gen = Generator(cfg)  # Generator
-        self.disc = CodeDiscriminator(cfg)  # Discriminator
+        self.rev = ReversedGenerator(cfg)
+        self.disc = CodeDiscriminator(cfg, cfg.hidden_size_w)  # Discriminator
+        #self.disc_s = SampleDiscriminator(cfg, cfg.hidden_size_w*2)
 
         self._print_modules_info()
         if cfg.cuda:
@@ -105,9 +129,13 @@ class Network(object):
         self.optim_embed_w = optim_ae(self.embed_w)
         self.optim_enc = optim_ae(self.enc)
         self.optim_dec = optim_ae(self.dec)
-        self.optim_reg_ae = optim_ae(self.reg)
-        self.optim_reg_gen = optim_gen(self.reg)
+        #self.optim_reg = optim_ae(self.reg)
+        self.optim_reg_mu = optim_ae(self.reg.mu_layers)
+        self.optim_reg_sigma_ae = optim_ae(self.reg.sigma_layers)
+        self.optim_reg_sigma_gen = optim_gen(self.reg.sigma_layers)
+        #self.optim_reg_gen = optim_gen(self.reg)
         self.optim_gen = optim_gen(self.gen)
+        self.optim_rev = optim_gen(self.rev)
         self.optim_disc = optim_disc(self.disc)
 
     def _print_modules_info(self):
@@ -127,6 +155,20 @@ class Network(object):
         self._check_init_by_name('_batch_schedulers')
         for name, module in self._batch_schedulers.items():
             yield name, module
+
+    def clip_grad_norm_by_names(self, *names):
+        for name in names:
+            module = self._modules.get(name, None)
+            if module is None:
+                raise ValueError("Can't find module name %s" % name)
+            module.clip_grad_norm()
+
+    def step_optimizers_by_names(self, *names):
+        for name in names:
+            optim = self._optimizers.get(name, None)
+            if optim is None:
+                raise ValueError("Can't find optimizer name of %s" % name)
+            optim.step()
 
     def save_modules(self):
         self._check_init_by_name('_modules')

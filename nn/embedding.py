@@ -44,10 +44,10 @@ class Embedding(BaseModule):
         assert(mode in ['hard', 'soft'])
 
         # # normalize columns & zero PAD embedding
-        # new_weight = F.normalize(self.embed.weight, p=2, dim=1)
-        # #new_weight[self.vocab.PAD_ID] = torch.zeros(self.embed_size)
-        # self.embed.weight = nn.Parameter(new_weight.data,
-        #                                  requires_grad=self.requires_grad)
+        #new_weight = F.normalize(self.embed.weight, p=2, dim=1)
+        #new_weight[self.vocab.PAD_ID] = torch.zeros(self.embed_size)
+        #self.embed.weight = nn.Parameter(new_weight.data,
+        #                                 requires_grad=self.requires_grad)
 
         if mode is 'hard':
             # indices : [bsz, max_len]

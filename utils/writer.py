@@ -154,9 +154,10 @@ class MySummaryWriter(SummaryWriter):
         try:
             os.makedirs(save_path)
         except OSError:
+            pass
             # to control log level
-            log.warning('warning: Embedding dir exists, '
-                         'did you set global_step for add_embedding()?')
+            #log.warning('warning: Embedding dir exists, '
+            #             'did you set global_step for add_embedding()?')
 
         if metadata is not None:
             assert all(mat.size(0) == len(d) for d in metadata.values()), \

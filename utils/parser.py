@@ -30,6 +30,8 @@ parser.add_argument('--min_len', type=int, default=1,
                     help='minimum sentence length')
 parser.add_argument('--max_len', type=int, default=20,
                     help='maximum sentence length')
+parser.add_argument('--exclude_over_max', type=str2bool, default=True,
+                    help='exclude from dataset if sent len is over max_len')
 #parser.add_argument('--lowercase', action='store_true',
 #                    help='lowercase all text')
 parser.add_argument('--reload_prepro', action='store_true')
@@ -49,7 +51,7 @@ parser.add_argument('--hidden_size_t', type=int, default=50,
                     help='number of tagger hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.1,
+parser.add_argument('--noise_radius', type=float, default=0.0,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
@@ -68,7 +70,7 @@ parser.add_argument('--temp', type=float, default=1,
                     help='softmax temperature (lower --> more discrete)')
 parser.add_argument('--ae_grad_norm', type=str2bool, default=True,
                     help='norm code gradient from critic->encoder')
-parser.add_argument('--gan_to_enc', type=float, default=0.2,
+parser.add_argument('--gan_to_enc', type=float, default=-1.0,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--gan_to_dec', type=float, default=1.0,
                     help='weight factor passing gradient from gan to decoder')
@@ -87,6 +89,12 @@ parser.add_argument('--enc_disc', type=str2bool, default=True,
                     help='weight sharing between encoder and disc_s')
 parser.add_argument('--pos_tag', type=str2bool, default=False,
                     help='determine whether the model use POS tags')
+parser.add_argument('--enc_type', type=str, default='cnn',
+                    choices=['cnn','rnn'], help='encoder type (CNN or RNN)')
+parser.add_argument('--dec_type', type=str, default='rnn',
+                    choices=['cnn','rnn'], help='encoder type (CNN or RNN)')
+parser.add_argument('--dec_embed', type=str2bool, default=False,
+                    help='decoder outputs word embeddings instead of indices')
 
 # Training Arguments
 parser.add_argument('--epochs', type=int, default=15,
@@ -100,7 +108,7 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--eval_size', type=int, default=1000, metavar='N',
+parser.add_argument('--eval_size', type=int, default=800, metavar='N',
                     help='batch size during evaluation')
 parser.add_argument('--niter_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')
@@ -135,7 +143,7 @@ parser.add_argument('--layer_temp', type=float, default=1e-2,
                     help='softmax temperature for layerwise attention')
 parser.add_argument('--anneal_step', type=int, default=200,
                     help='autoencdoer noise annealing interval')
-parser.add_argument('--embed_temp', type=float, default=20,
+parser.add_argument('--embed_temp', type=float, default=200,
                     help='temperature of log softmax in word prediction')
 
 # Evaluation Arguments
@@ -157,3 +165,5 @@ parser.add_argument('--seed', type=int, default=1111,
 parser.add_argument('--cuda', type=str2bool, default=True, help='use CUDA')
 parser.add_argument('--log_nsample', type=int, default=4)
 parser.add_argument('--test', action='store_true', help='run test mode')
+parser.add_argument('--visualize', action='store_true',
+                    help='run visualize mode')

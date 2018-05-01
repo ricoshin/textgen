@@ -10,8 +10,8 @@ from utils.utils import to_gpu
 log = logging.getLogger('main')
 
 
-class GradientScalingHooker(object):
-    def __init__(self, scale_factor):
+class GradientScalingHook(object):
+    def __init__(self, scale_factor=1.0):
         self._eps = 1e-12
         self._factor = scale_factor
         self._grad_norm = None
@@ -40,6 +40,60 @@ class GradientScalingHooker(object):
         return normed_grad
 
 
+class GradientTransferHook(object):
+    def __init__(self):
+        self._saved_grad = None
+
+    @property
+    def saved_grad(self):
+        if self._saved_grad is None:
+            raise Exception("No save gradient!")
+        return self._saved_grad
+
+    def stash_grad(self, grad):
+        self._saved_grad = grad
+        return Variable(torch.zeros(*grad.size())).cuda()
+
+    def transfer_grad(self, grad):
+        return self._saved_grad
+
+
+class SigmaHook(object):
+    def __init__(self):
+        self._grad_abs = None
+
+    @property
+    def grad_abs(self):
+        if self._grad_abs is None:
+            raise Exception("No saved absolute value of gradients!")
+        return self._grad_abs
+
+    def save_sign(self, std):
+        #import pdb; pdb.set_trace()
+        self.std_sign = std.gt(0)
+
+    def match_sign(self, grad):
+        self.grad_sign = grad.gt(0)
+        mask = self.std_sign.eq(self.grad_sign)
+        return grad*mask.float()
+
+    def stash_grad(self, grad):
+        self._grad = grad.detach()#.abs()
+        return Variable(torch.zeros(*grad.size())).cuda()
+
+    def compare_grad_with_stashed(self, grad):
+        grad_a_pos = self._grad.gt(0)
+        grad_b_pos = grad.lt(0)
+        diff_sign = grad_a_pos.eq(grad_b_pos)
+
+
+
+
+        import pdb; pdb.set_trace()
+        print('a')
+        return grad
+
+
 def mask_output_target(output, target, ntokens):
     # Create sentence length mask over padding
     target_mask = target.gt(0) # greater than 0
@@ -49,10 +103,10 @@ def mask_output_target(output, target, ntokens):
     target_mask = target_mask.unsqueeze(1)
     output_mask = target_mask.expand(target_mask.size(0), ntokens)
     # flattened_output.size(): batch_size*max_len x ntokens
-    flattened_output = output.view(-1, ntokens)
+    # flattened_output = output.view(-1, ntokens)
     # flattened_output.masked_select(output_mask).size()
     #  num_of_masked_words(in batch, excluding <pad>)*ntokens
-    masked_output = flattened_output.masked_select(output_mask)
+    masked_output = output.masked_select(output_mask)
     masked_output = masked_output.view(-1, ntokens)
     # masked_output.size() : num_of_masked_words x ntokens
     # masked_target : num_of_masked_words
@@ -267,7 +321,7 @@ def compute_cosine_sim(out_word, embedding):
     embed = embedding.embed.weight.detach()
     vocab_size, embed_size = embed.size()
     embed = embed.permute(1, 0) # [embed_size, vocab_size]
-    out_embed = out_word.view(-1, embed_size) # [bsz(*maxlen), embed_size]
-    cos_sim = torch.mm(out_embed, embed) # [bsz(*maxlen), vocab_size]
+    out_embed = out_word.view(-1, embed_size) # [bsz(*max_len), embed_size]
+    cos_sim = torch.mm(out_embed, embed) # [bsz(*max_len), vocab_size]
     cos_sim = cos_sim.view(*out_word.size()[:-1], vocab_size)
     return cos_sim # [bsz, (max_len,) vocab_size]
