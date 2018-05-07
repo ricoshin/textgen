@@ -45,7 +45,7 @@ parser.add_argument('--embed_size_w', type=int, default=300,
                     help='size of word embeddings')
 parser.add_argument('--embed_size_t', type=int, default=50,
                     help='size of tag embeddings')
-parser.add_argument('--hidden_size_w', type=int, default=100,
+parser.add_argument('--hidden_size_w', type=int, default=300,
                     help='number of decoder hidden units per layer')
 parser.add_argument('--hidden_size_t', type=int, default=50,
                     help='number of tagger hidden units per layer')
@@ -56,7 +56,7 @@ parser.add_argument('--noise_radius', type=float, default=0.0,
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
                          'every 100 iterations')
-parser.add_argument('--code_norm', type=str2bool, default=True,
+parser.add_argument('--code_norm', type=str2bool, default=False,
                     help='encoder code normalization')
 parser.add_argument('--hidden_init', action='store_true',
                     help="initialize decoder hidden state with encoder's")
@@ -108,7 +108,7 @@ parser.add_argument('--patience', type=int, default=5,
                          "improvement to wait before early stopping")
 parser.add_argument('--batch_size', type=int, default=64, metavar='N',
                     help='batch size')
-parser.add_argument('--eval_size', type=int, default=800, metavar='N',
+parser.add_argument('--eval_size', type=int, default=500, metavar='N',
                     help='batch size during evaluation')
 parser.add_argument('--niter_ae', type=int, default=1,
                     help='number of autoencoder iterations in training')

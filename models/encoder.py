@@ -24,15 +24,15 @@ class BaseEncoder(BaseModule):
         return self.__call__(*inputs)
 
     def forward(self, *inputs):
-        code = self._encode(*inputs)
+        hidden = self._encode(*inputs)
         # normalization
-        # if self.cfg.code_norm:
-        #     code = self._normalize(code)
+        # if self.cfg.hidden_norm:
+        #     hidden = self._normalize(hidden)
         # unit gaussian noise
         if self._is_add_noise and self.noise_radius > 0:
-            code = self._add_gaussian_noise_to(code)
+            hidden = self._add_gaussian_noise_to(hidden)
             self._is_add_noise = False  # back to default
-        return code
+        return hidden
 
     def _add_gaussian_noise_to(self, code):
         # gaussian noise
@@ -139,27 +139,38 @@ class VariationalRegularizer(BaseModule):
     def __init__(self, cfg):
         super(VariationalRegularizer, self).__init__()
         self.cfg = cfg
+        self._mu = None
         self._sigma = None
         self._with_var = True
 
         self.mu_layers = torch.nn.Sequential(
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
         )
         self.sigma_layers = torch.nn.Sequential(
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
+            nn.Softplus(),
         )
         #self._init_weights()
 
     @property
+    def mu(self):
+        if self._mu is None:
+            raise Exception('Feedforward first!')
+        return self._mu
+
+    @property
     def sigma(self):
-        if self._sigma is not None:
-            return self._sigma.mean().data[0]
-        else:
-            return 0
+        if self._sigma is None:
+            raise Exception('Feedforward first!')
+        return self._sigma
+
+    @property
+    def logvar(self):
+        return self._logvar
 
     def with_var(self, enc_h):
         self._with_var = True
@@ -171,14 +182,14 @@ class VariationalRegularizer(BaseModule):
 
     def forward(self, enc_h):
         #code = F.relu(code)
-        mu = self.mu_layers(enc_h)
-        # normalization
-        if self.cfg.code_norm:
-            mu = self._normalize(mu)
+        self._mu = mu = self.mu_layers(enc_h)
 
         if self._with_var:
-            log_sigma = self.sigma_layers(enc_h)
-            self._sigma = sigma = torch.exp(log_sigma)
+            self._sigma = sigma = self.sigma_layers(enc_h)
+            #self._logvar = logvar = self.sigma_layers(enc_h)
+            #self._sigma = sigma = torch.exp(logvar * 0.5)
+            #log_sigma = self.sigma_layers(enc_h)
+            #self._sigma = sigma = torch.exp(log_sigma)
             std = np.random.normal(0, 1, size=sigma.size())
             std = Variable(torch.from_numpy(std).float(), requires_grad=False)
             std = to_gpu(self.cfg.cuda, std)
@@ -187,6 +198,10 @@ class VariationalRegularizer(BaseModule):
             code = mu
             self._sigma = None
             self._with_var = True
+
+        # normalization
+        if self.cfg.code_norm:
+            code = self._normalize(code)
 
         return code
 
@@ -205,15 +220,22 @@ class CodeSmoothingRegularizer(BaseModule):
         super(CodeSmoothingRegularizer, self).__init__()
         self.cfg = cfg
         self.is_with_var = True  # default
-        self.fc_logvar1 = nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w)
-        self.fc_logvar2 = nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w)
+        self.sigma_layers = nn.Sequential(
+            nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
+            nn.Tanh(),
+            nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
+            nn.Tanh(),
+            nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
+            nn.Softplus(),
+        )
+
         self._sigma = None
         #self._init_weights()
 
     @property
-    def var(self):
+    def sigma(self):
         if self._sigma is not None:
-            return self._sigma**2
+            return self._sigma.mean().data[0]
         else:
             return 0
 
@@ -234,10 +256,9 @@ class CodeSmoothingRegularizer(BaseModule):
         #code = F.relu(code)
         #code_new = self._reparameterize(code, logvar)
         if self.is_with_var:
-            logvar = F.tanh(self.fc_logvar1(code))
-            logvar = self.fc_logvar2(logvar)
-            #import pdb; pdb.set_trace()
-            self._sigma = sigma = logvar.mul(0.5).exp_() # always positive
+            self._sigma = sigma = self.sigma_layers(code)
+            #logvar = self.sigma_layers(code)
+            #self._sigma = sigma = logvar.mul(0.5).exp_() # always positive
             eps = Variable(sigma.data.new(sigma.size()).normal_())
             if code_dir is not None:
                 eps_pos = eps.ge(0)

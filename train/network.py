@@ -107,6 +107,7 @@ class Network(object):
         self.enc = Encoder(cfg)  # Encoder
         self.reg = VariationalRegularizer(cfg)  # Code regularizer
         self.dec = Decoder(cfg, self.embed_w)  # Decoder
+        self.dec2 = Decoder(cfg, self.embed_w)  # Decoder
         self.gen = Generator(cfg)  # Generator
         self.rev = ReversedGenerator(cfg)
         self.disc = CodeDiscriminator(cfg, cfg.hidden_size_w)  # Discriminator
@@ -129,11 +130,12 @@ class Network(object):
         self.optim_embed_w = optim_ae(self.embed_w)
         self.optim_enc = optim_ae(self.enc)
         self.optim_dec = optim_ae(self.dec)
-        #self.optim_reg = optim_ae(self.reg)
+        self.optim_dec2 = optim_ae(self.dec2)
         self.optim_reg_mu = optim_ae(self.reg.mu_layers)
         self.optim_reg_sigma_ae = optim_ae(self.reg.sigma_layers)
         self.optim_reg_sigma_gen = optim_gen(self.reg.sigma_layers)
         #self.optim_reg_gen = optim_gen(self.reg)
+        #self.optim_reg = optim_gen(self.reg)
         self.optim_gen = optim_gen(self.gen)
         self.optim_rev = optim_gen(self.rev)
         self.optim_disc = optim_disc(self.disc)

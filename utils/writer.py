@@ -33,7 +33,7 @@ class ResultWriter(object):
             if type(value) in (int, float, str):
                 scalar_text_pack.add({name: value})
             elif type(value) is self.Embedding:
-                name = label + '/' + name
+                #name = label + '/' + name
                 self._embedding.update({name: value})
             else:
                 raise Exception('Unknown type : %s' % type(value))
