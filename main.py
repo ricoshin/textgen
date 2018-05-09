@@ -31,7 +31,7 @@ if __name__ == '__main__':
     #     vocab_pos = process_pos_corpus(cfg, 'split')
     #     corpus = CorpusPOSDataset(cfg.corpus_data_path,
     #                               cfg.pos_data_path)
-    
+
     if cfg.pos_tag:
         vocab, vocab_tag = process_corpus_tag(cfg)
         corpus = CorpusPOSDataset(cfg.corpus_data_path,

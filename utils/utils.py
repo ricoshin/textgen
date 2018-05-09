@@ -155,7 +155,7 @@ def prepare_paths(cfg):
             cfg.corpus_path = \
                 [*map(lambda fn: os.path.join(cfg.data_dir, fn), filenames)]
 
-    elif cfg.data_name == "snli":
+    elif cfg.data_name == "nli":
         if cfg.small:
             raise Exception("There's no small version of snli dataset!")
         else:

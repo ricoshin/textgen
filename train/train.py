@@ -40,6 +40,7 @@ class Trainer(object):
         #self.code_var_hook = GradientScalingHook()
         #self.tansfer_hook = GradientTransferHook()
         self.noise = 0.5
+        #self.noise = net.cfg.noise_radius
 
         while not self.sv.is_end_of_training():
             self.train_loop(self.cfg, self.net, self.sv)
@@ -77,20 +78,46 @@ class Trainer(object):
                 self._eval_autoencoder(batch)
                 self._generate_text()
 
+        # if sv.global_step % 3000 == 0:
+        #     self._reverse_ppl()
+
+    def _reverse_ppl(self):
+        self.net.set_modules_train_mode(True)
+
+        for i in range(1000):
+            noise = self.net.gen.get_noise(100)
+            code_fake = self.net.gen(noise)
+            decoded = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
+            text = decoded.get_text_batch()
+
+        data_path = "generated_{}.txt".format(self.sv.global_step)
+        with open(data_path, 'w') as f:
+            for word in self.net.vocab_w.word2idx.keys():
+                f.write(word+"\n")
+
+
+
+        code_fake = self.net.gen.for_eval()
+        zs = self._get_interpolated_z(100)
+        code_interpolated = self.net.gen(zs)
+
+        #decoded0 = self.net.dec.tester(noise, max_len=self.cfg.max_len)
+        decoded1 = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
+
     def _train_autoencoder(self, batch, name='AE_train'):
         self.net.set_modules_train_mode(True)
 
         # Build graph
         embed = self.net.embed_w(batch.src)
-        enc_h = self.net.enc(embed, batch.len)
-        code = self.net.reg.with_var(enc_h)
+        code = self.net.enc.with_noise(embed, batch.len)
+        #code = self.net.reg.with_var(enc_h)
         #cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
         decoded = self.net.dec(code, batch=batch)
         # tags, words = self.net.dec.free_running(
         #     code_t, code_w, max(batch.len))
 
         # Register hook
-        enc_h.register_hook(self.enc_h_hook.save_grad_norm)
+        #enc_h.register_hook(self.enc_h_hook.save_grad_norm)
         #code.register_hook(self.code_hook.save_grad_norm)
         #code_var.register_hook(self.code_var_hook.save_grad_norm)
         # code.register_hook(self.net.enc.save_ae_grad_norm_hook)
@@ -102,32 +129,32 @@ class Trainer(object):
         #loss_var = 1 / torch.sum(self.net.reg.var) * 0.0000001
         #loss_mean = code_var.mean()
         #loss_var = loss_recon.detach() / loss_var.detach() * loss_var * 0.2
-        loss_kl = self._compute_kl_div_loss(self.net.reg.mu, self.net.reg.sigma)
-        loss = loss_recon + loss_kl
+        #loss_kl = self._compute_kl_div_loss(self.net.reg.mu, self.net.reg.sigma)
+        loss = loss_recon #+ loss_kl
 
         loss.backward()
 
         # to prevent exploding gradient in RNNs
-        self.net.embed_w.clip_grad_norm()
-        self.net.enc.clip_grad_norm()
-        self.net.reg.clip_grad_norm()
-        self.net.dec.clip_grad_norm()
+        self.net.embed_w.clip_grad_norm_()
+        self.net.enc.clip_grad_norm_()
+        #self.net.reg.clip_grad_norm_()
+        self.net.dec.clip_grad_norm_()
 
         # optimize
         self.net.optim_embed_w.step()
         self.net.optim_enc.step()
-        self.net.optim_reg_mu.step()
-        self.net.optim_reg_sigma_ae.step()
+        #self.net.optim_reg_mu.step()
+        #self.net.optim_reg_sigma_ae.step()
         self.net.optim_dec.step()
 
         self.result.add(name, odict(
-            loss_total=loss.data[0],
-            loss_recon=loss_recon.data[0],
-            loss_kl=loss_kl.data[0],
-            #loss_var=loss_var.data[0],
-            acc=acc.data[0],
-            sigma=self.net.reg.sigma.mean().data[0],
-            # cosim=cos_sim.data[0],
+            loss_total=loss.item(),
+            loss_recon=loss_recon.item(),
+            #loss_kl=loss_kl.item(),
+            #loss_var=loss_var.item(),
+            acc=acc.item(),
+            #sigma=self.net.reg.sigma.mean().item(),
+            # cosim=cos_sim.item(),
             # var=self.net.reg.var,
             noise=self.net.enc.noise_radius,
         ))
@@ -142,14 +169,14 @@ class Trainer(object):
 
         # Build graph
         embed = self.net.embed_w(batch.src)
-        enc_h = self.net.enc(embed, batch.len)
-        code = self.net.reg.without_var(enc_h)
+        code = self.net.enc(embed, batch.len)
+        #code = self.net.reg.without_var(enc_h)
         for _ in range(n_vars):
-            code_var = self.net.reg.with_var(enc_h)
-            # if self.noise > 0:
-            #     code_var = self._add_noise_to(code)
-            # else:
-            #     code_var = code
+            #code_var = self.net.reg.with_var(code)
+            if self.noise > 0:
+                code_var = self._add_noise_to(code)
+            else:
+                code_var = code
             codes_var.append(code_var)
 
         noise = self.net.rev(code_var)
@@ -164,7 +191,7 @@ class Trainer(object):
         loss_recon, acc = self._compute_recon_loss_and_acc(
             decoded.prob, batch.tar, len(self.net.vocab_w))
         #loss_var = 1 / torch.mean(self.net.reg.var)
-        loss_kl = self._compute_kl_div_loss(self.net.reg.mu, self.net.reg.sigma)
+        #loss_kl = self._compute_kl_div_loss(self.net.reg.mu, self.net.reg.sigma)
 
         embed = ResultWriter.Embedding(
             embed=code.data,
@@ -185,14 +212,14 @@ class Trainer(object):
             embeds_var.update({('embed_noise_%d' % i): embed_var})
 
         result_dict = odict(
-            loss_recon=loss_recon.data[0],
-            #loss_var=loss_var.data[0],
-            loss_kl=loss_kl.data[0],
-            acc=acc.data[0],
+            loss_recon=loss_recon.item(),
+            #loss_var=loss_var.item(),
+            #loss_kl=loss_kl.item(),
+            acc=acc.item(),
             embed_real=embed,
             embed_gen=embed_gen,
             #embed_var=embed_var,
-            # cosim=cos_sim.data[0],
+            # cosim=cos_sim.item(),
             noise=self.net.enc.noise_radius,
             text=decoded.get_text_with_pair(batch.src),
         )
@@ -225,7 +252,7 @@ class Trainer(object):
 
     def _add_noise_to(self, code):
         # gaussian noise
-        noise = torch.normal(means=torch.zeros(code.size()),
+        noise = torch.normal(mean=torch.zeros(code.size()),
                              std=self.noise)
         noise = to_gpu(self.cfg.cuda, Variable(noise))
         return code + noise
@@ -235,13 +262,13 @@ class Trainer(object):
 
         # Build graph
         embed = self.net.embed_w(batch.src)
-        enc_h = self.net.enc(embed, batch.len)
-        code_real = self.net.reg.without_var(enc_h)
-        code_real_var = self.net.reg.with_var(enc_h)
-        # if self.noise > 0:
-        #     code_real_var = self._add_noise_to(code_real)
-        # else:
-        #     code_real_var = code_real
+        code_real = self.net.enc(embed, batch.len)
+        #code_real = self.net.reg.without_var(enc_h)
+        #code_real_var = self.net.reg.with_var(code_real)
+        if self.noise > 0:
+            code_real_var = self._add_noise_to(code_real)
+        else:
+            code_real_var = code_real
 
         # NOTE
         #enc_h.register_hook(self.enc_h_hook.scale_grad_norm)
@@ -249,21 +276,21 @@ class Trainer(object):
         #disc_real = self.net.disc(code_real_var)
         #disc_real.backward(self.neg_one)
 
-        #self.net.embed_w.clip_grad_norm()
-        #self.net.enc.clip_grad_norm()
-        #self.net.reg.clip_grad_norm()
+        #self.net.embed_w.clip_grad_norm_()
+        #self.net.enc.clip_grad_norm_()
+        #self.net.reg.clip_grad_norm_()
         #self.net.optim_embed_w.step()
         #self.net.optim_enc.step()
         #self.net.optim_reg_sigma_gen.step()
 
         noise = self.net.rev(code_real_var)
-        code_fake = self.net.gen(noise.detach())
-        rev_dist = F.pairwise_distance(code_fake, code_real.detach(),
+        code_rev = self.net.gen(noise.detach())
+        rev_dist = F.pairwise_distance(code_rev, code_real.detach(),
                                        p=2).mean() # NOTE code_real_var?
         rev_dist.backward()
         self.net.optim_gen.step()
 
-        decoded = self.net.dec2(code_fake.detach(), batch=batch)
+        decoded = self.net.dec2(code_rev.detach(), batch=batch)
         gen_fake, gen_acc = self._compute_recon_loss_and_acc(
             decoded.prob, batch.tar, len(self.net.vocab_w))
         gen_fake.backward()
@@ -274,10 +301,10 @@ class Trainer(object):
         # #code_enc_var.register_hook(self.tansfer_hook.transfer_grad)
         # rev_dist.backward(retain_graph=True)
         self.result.add(name, odict(
-            rev_dist=rev_dist.data[0],
-            gen_fake=gen_fake.data[0],
-            gen_acc=gen_acc.data[0],
-            sigma=self.net.reg.sigma.mean().data[0],
+            rev_dist=rev_dist.item(),
+            gen_fake=gen_fake.item(),
+            gen_acc=gen_acc.item(),
+            #sigma=self.net.reg.sigma
             text=decoded.get_text_with_pair(batch.src),
             ))
 
@@ -298,8 +325,8 @@ class Trainer(object):
         self.net.optim_rev.step()
 
         self.result.add(name, odict(
-            loss_gen=disc_fake.data[0],
-            #loss_rev=rev_dist.data[0],
+            loss_gen=disc_fake.item(),
+            #loss_rev=rev_dist.item(),
         ))
 
     def _train_regularizer2(self, batch, name="Reg_train"):
@@ -313,9 +340,9 @@ class Trainer(object):
 
         #code_var.register_hook(self.code_var_hook.scale_grad_norm)
         disc_var.backward(self.pos_one)
-        #self.net.embed_w.clip_grad_norm()
-        #self.net.enc.clip_grad_norm()
-        #self.net.reg.clip_grad_norm()
+        #self.net.embed_w.clip_grad_norm_()
+        #self.net.enc.clip_grad_norm_()
+        #self.net.reg.clip_grad_norm_()
         self.net.optim_embed_w.step()
         self.net.optim_enc.step()
         self.net.optim_reg_sigma_gen.step()
@@ -356,16 +383,16 @@ class Trainer(object):
         # self.net.enc.zero_grad()
         # self.net.reg.zero_grad()
         # disc_real.backward(self.neg_one)
-        # self.net.embed_w.clip_grad_norm()
-        # self.net.enc.clip_grad_norm()
+        # self.net.embed_w.clip_grad_norm_()
+        # self.net.enc.clip_grad_norm_()
         # self.net.optim_embed_w.step()
         # self.net.optim_enc.step()
         # self.net.optim_reg_mu.step()
 
         self.result.add(name, odict(
-            loss_toal=loss_total.data[0],
-            loss_real=disc_real.data[0],
-            loss_fake=disc_fake.data[0],
+            loss_toal=loss_total.item(),
+            loss_real=disc_real.item(),
+            loss_fake=disc_fake.item(),
         ))
 
 
@@ -402,15 +429,15 @@ class Trainer(object):
         zs = self._get_interpolated_z(100)
         code_interpolated = self.net.gen(zs)
 
-        decoded0 = self.net.dec.tester(noise, max_len=self.cfg.max_len)
+        #decoded0 = self.net.dec.tester(noise, max_len=self.cfg.max_len)
         decoded1 = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
         decoded2 = self.net.dec2.tester(code_fake, max_len=self.cfg.max_len)
         decoded3 = self.net.dec2.tester(code_interpolated, max_len=self.cfg.max_len)
 
-        code_embed_vae = ResultWriter.Embedding(
-            embed=noise.data,
-            text=decoded0.get_text_batch(),
-            tag='code_embed')
+        # code_embed_vae = ResultWriter.Embedding(
+        #     embed=noise.data,
+        #     text=decoded0.get_text_batch(),
+        #     tag='code_embed')
         code_embed_gan = ResultWriter.Embedding(
             embed=code_fake.data,
             text=decoded1.get_text_batch(),
@@ -427,11 +454,11 @@ class Trainer(object):
         #     tag='code_embed')
 
         self.result.add(name, odict(
-            embed_fake_vae=code_embed_vae,
-            embed_fake_gan=code_embed_gan,
+            #embed_fake_vae=code_embed_vae,
+            embed_fake=code_embed_gan,
             embed_interpolated=code_embed_interpolated,
             # embed_fake2=code_embed2,
-            txt_word0=decoded0.get_text(),
+            #txt_word0=decoded0.get_text(),
             txt_word1=decoded1.get_text(),
             txt_word2=decoded2.get_text(),
         ))

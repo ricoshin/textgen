@@ -105,7 +105,7 @@ class Network(object):
         # NOTE remove later!
         self.embed_w = Embedding(cfg, self.vocab_w)  # Word embedding
         self.enc = Encoder(cfg)  # Encoder
-        self.reg = VariationalRegularizer(cfg)  # Code regularizer
+        self.reg = CodeSmoothingRegularizer(cfg)  # Code regularizer
         self.dec = Decoder(cfg, self.embed_w)  # Decoder
         self.dec2 = Decoder(cfg, self.embed_w)  # Decoder
         self.gen = Generator(cfg)  # Generator
@@ -131,11 +131,11 @@ class Network(object):
         self.optim_enc = optim_ae(self.enc)
         self.optim_dec = optim_ae(self.dec)
         self.optim_dec2 = optim_ae(self.dec2)
-        self.optim_reg_mu = optim_ae(self.reg.mu_layers)
-        self.optim_reg_sigma_ae = optim_ae(self.reg.sigma_layers)
-        self.optim_reg_sigma_gen = optim_gen(self.reg.sigma_layers)
+        self.optim_reg = optim_ae(self.reg)
+        #self.optim_reg_mu = optim_ae(self.reg.mu_layers)
+        #self.optim_reg_sigma_ae = optim_ae(self.reg.sigma_layers)
+        #self.optim_reg_sigma_gen = optim_gen(self.reg.sigma_layers)
         #self.optim_reg_gen = optim_gen(self.reg)
-        #self.optim_reg = optim_gen(self.reg)
         self.optim_gen = optim_gen(self.gen)
         self.optim_rev = optim_gen(self.rev)
         self.optim_disc = optim_disc(self.disc)
@@ -158,12 +158,12 @@ class Network(object):
         for name, module in self._batch_schedulers.items():
             yield name, module
 
-    def clip_grad_norm_by_names(self, *names):
+    def clip_grad_norm__by_names(self, *names):
         for name in names:
             module = self._modules.get(name, None)
             if module is None:
                 raise ValueError("Can't find module name %s" % name)
-            module.clip_grad_norm()
+            module.clip_grad_norm_()
 
     def step_optimizers_by_names(self, *names):
         for name in names:

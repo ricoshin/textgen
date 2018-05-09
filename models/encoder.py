@@ -24,7 +24,7 @@ class BaseEncoder(BaseModule):
         return self.__call__(*inputs)
 
     def forward(self, *inputs):
-        hidden = self._encode(*inputs)
+        hidden = F.tanh(self._encode(*inputs))
         # normalization
         # if self.cfg.hidden_norm:
         #     hidden = self._normalize(hidden)
@@ -36,13 +36,13 @@ class BaseEncoder(BaseModule):
 
     def _add_gaussian_noise_to(self, code):
         # gaussian noise
-        noise = torch.normal(means=torch.zeros(code.size()),
+        noise = torch.normal(mean=torch.zeros(code.size()),
                              std=self.noise_radius)
         noise = to_gpu(self.cfg.cuda, Variable(noise))
         return code + noise
 
-    def clip_grad_norm(self):
-        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+    def clip_grad_norm_(self):
+        nn.utils.clip_grad_norm_(self.parameters(), self.cfg.clip)
         return self
 
     def decay_noise_radius(self):
@@ -205,8 +205,8 @@ class VariationalRegularizer(BaseModule):
 
         return code
 
-    def clip_grad_norm(self):
-        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+    def clip_grad_norm_(self):
+        nn.utils.clip_grad_norm_(self.parameters(), self.cfg.clip)
         return self
 
     def _init_weights(self):
@@ -224,8 +224,8 @@ class CodeSmoothingRegularizer(BaseModule):
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
             nn.Tanh(),
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
-            nn.Tanh(),
-            nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
+            # nn.Tanh(),
+            # nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
             nn.Softplus(),
         )
 
@@ -260,11 +260,6 @@ class CodeSmoothingRegularizer(BaseModule):
             #logvar = self.sigma_layers(code)
             #self._sigma = sigma = logvar.mul(0.5).exp_() # always positive
             eps = Variable(sigma.data.new(sigma.size()).normal_())
-            if code_dir is not None:
-                eps_pos = eps.ge(0)
-                eq = code_dir.eq(eps_pos)
-                ne = eq^1
-                eps = eps*eq.float() - eps*ne.float()
             noise = eps.detach().mul(sigma)
             #self._var = std.mean().data[0]
             #import pdb; pdb.set_trace()
@@ -290,8 +285,8 @@ class CodeSmoothingRegularizer(BaseModule):
             self._var = None
             return mu
 
-    def clip_grad_norm(self):
-        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+    def clip_grad_norm_(self):
+        nn.utils.clip_grad_norm_(self.parameters(), self.cfg.clip)
         return self
 
     # def _init_weights(self):

@@ -14,8 +14,8 @@ parser.add_argument('--prepro_dir', type=str, default='prepro',
                     help='location of the preprocessed data')
 parser.add_argument('--data_dir', type=str, default='data',
                     help='location of the datasets')
-parser.add_argument('--data_name', type=str, default='snli',
-                    choices=['snli','books', 'pos'], help='name of dataset')
+parser.add_argument('--data_name', type=str, default='nli',
+                    choices=['nli','books', 'pos', 'snli'], help='name of dataset')
 parser.add_argument('--glove_dir', type=str, default='data/glove',
                     help='location of pretrained glove data')
 parser.add_argument('--out_dir', type=str, default='out2',
@@ -51,7 +51,7 @@ parser.add_argument('--hidden_size_t', type=int, default=50,
                     help='number of tagger hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.0,
+parser.add_argument('--noise_radius', type=float, default=0.2,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'
@@ -74,7 +74,7 @@ parser.add_argument('--gan_to_enc', type=float, default=-1.0,
                     help='weight factor passing gradient from gan to encoder')
 parser.add_argument('--gan_to_dec', type=float, default=1.0,
                     help='weight factor passing gradient from gan to decoder')
-parser.add_argument('--dropout', type=float, default=0.5,
+parser.add_argument('--dropout', type=float, default=0.0,
                     help='dropout applied to layers (0 = no dropout)')
 parser.add_argument('--kernel_sizes', type=str, default='2,3,4',
                     help='kernel sizes of text CNN')

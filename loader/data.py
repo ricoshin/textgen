@@ -10,7 +10,7 @@ from tqdm import tqdm
 import torch
 from torch.autograd import Variable
 from torch.utils.data import Dataset, DataLoader
-from torch.utils.data.dataloader import DataLoaderIter
+from torch.utils.data.dataloader import _DataLoaderIter
 
 from loader.multi_proc import LargeFileMultiProcessor, LineCounter
 from utils.utils import to_gpu
@@ -226,7 +226,7 @@ class MyDataLoader(DataLoader):
         return MyDataLoaderIter(self)
 
 
-class MyDataLoaderIter(DataLoaderIter):
+class MyDataLoaderIter(_DataLoaderIter):
     """Class method overriding for pickling DatatLoaderIter"""
     def __init__(self, *inputs):
         super(MyDataLoaderIter, self).__init__(*inputs)

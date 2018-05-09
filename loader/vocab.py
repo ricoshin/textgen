@@ -19,11 +19,6 @@ class Vocab(object):
         self._embed = None
         self.embed_size = embed_size
 
-        if embed_init is not None:
-            self._embed_init = embed_init
-        else:
-            self._embed_init = None
-
         self._update_id_attr(specials)
 
         if specials:
@@ -54,7 +49,7 @@ class Vocab(object):
             self.idx2word.append(word)
             self.word2idx[word] = len(self.idx2word) - 1
 
-        self._generate_embedding()
+        self._generate_embedding(embed_init)
 
     def __len__(self):
         return len(self.word2idx)
@@ -73,17 +68,19 @@ class Vocab(object):
         else:
             return self._embed
 
-    def _generate_embedding(self):
+    def _generate_embedding(self, embed_init):
         # standard gaussian distribution initialization
         self._embed = np.random.normal(size=(len(self), self.embed_size))
 
-        if self._embed_init is not None:
+        if embed_init is not None:
             for word, idx in self.word2idx.items():
-                self._embed[idx] = self._embed_init.get(word, self._embed[idx])
+                self._embed[idx] = embed_init.get(word, self._embed[idx])
         # embedding of <pad> token should be zero
         if self.idx2word[self.PAD_ID] in self.word2idx.keys():
             #self._embed[self.PAD_ID] = 0 # NOTE
             pass
+            
+        del embed_init
 
     def ids2text_batch(self, ids_batch):
         return list(map(self.ids2text, ids_batch))

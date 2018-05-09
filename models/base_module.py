@@ -28,8 +28,8 @@ class BaseModule(nn.Module):
             self.zero_grad()
         return self.train(False)
 
-    def clip_grad_norm(self):
-        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+    def clip_grad_norm_(self):
+        nn.utils.clip_grad_norm_(self.parameters(), self.cfg.clip)
         return self
 
     def forward(self, *input):

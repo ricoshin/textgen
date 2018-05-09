@@ -88,7 +88,7 @@ class Generator(BaseGenerator):
             x = layer(x)
 
         if self._with_noise:
-            noise = torch.normal(means=torch.zeros(x.size()), std=0.1)
+            noise = torch.normal(mean=torch.zeros(x.size()), std=0.1)
             noise = to_gpu(self.cfg.cuda, Variable(noise))
             x = x + noise
             with_noise = False

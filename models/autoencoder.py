@@ -22,8 +22,8 @@ class BaseAutoencoder(BaseModule):
     def embed_hook(self, hook):
         self.embed.register_hook(hook)
 
-    def clip_grad_norm(self):
-        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+    def clip_grad_norm_(self):
+        nn.utils.clip_grad_norm_(self.parameters(), self.cfg.clip)
         return self
 
     def _loss_and_accuracy(self, prob, target, vocab_size):

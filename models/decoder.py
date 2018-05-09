@@ -23,8 +23,8 @@ class BaseDecoder(BaseModule):
     def forward(self, code, batch=None, max_len=None):
         return self._decode(DecoderInPack(code, batch, max_len))
 
-    def clip_grad_norm(self):
-        nn.utils.clip_grad_norm(self.parameters(), self.cfg.clip)
+    def clip_grad_norm_(self):
+        nn.utils.clip_grad_norm_(self.parameters(), self.cfg.clip)
         return self
 
     def make_noise_size_of(self, *size):
@@ -131,9 +131,9 @@ class DecoderRNN(BaseDecoder):
 
         # Decoder
         input_w = torch.cat([embed_in_w, all_code_w], 2)
-        packed_input_w = pack_padded_sequence(input=input_w,
-                                              lengths=lengths,
+        packed_input_w = pack_padded_sequence(input_w, lengths,
                                               batch_first=True)
+
         packed_output_w, _ = self.decoder(packed_input_w, init_state_w)
         output_w, length_w = pad_packed_sequence(
             packed_output_w, batch_first=True)
