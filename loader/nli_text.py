@@ -1,3 +1,4 @@
+"""Modifed from https://github.com/jakezhaojb/ARAE/tree/master/pytorch"""
 
 import argparse
 import codecs
@@ -7,8 +8,7 @@ import zipfile
 
 
 """
-Transforms SNLI data into lines of text files
-    (data format required for ARAE model).
+Transforms SNLI & MultiNLI data into lines of text files.
 Gets rid of repeated premise sentences.
 """
 
@@ -103,32 +103,26 @@ if __name__ == "__main__":
         download_and_unzip(MNLI_URL, args.path)
 
     # process and write test.txt and train.txt files
-
     # SNLI
-    snli_path = os.path.join(args.path, "snli_1.0")
-    premises, hypotheses = \
-        transform_data(os.path.join(snli_path, "snli_1.0_test.jsonl"))
+    snli_path = os.path.join(args.path, "snli_1.0", "snli_1.0_")
+    premises, hypotheses = transform_data(snli_path + "test.jsonl"))
     write_sentences(write_path=os.path.join(args.path, "test.txt"),
                     premises=premises, hypotheses=hypotheses)
 
-    premises, hypotheses = \
-        transform_data(os.path.join(snli_path, "snli_1.0_train.jsonl"))
+    premises, hypotheses = transform_data(snli_path + "train.jsonl"))
     write_sentences(write_path=os.path.join(args.path, "train.txt"),
                     premises=premises, hypotheses=hypotheses)
 
-    premises, hypotheses = \
-        transform_data(os.path.join(snli_path, "snli_1.0_dev.jsonl"))
+    premises, hypotheses = transform_data(snli_path + "dev.jsonl"))
     write_sentences(write_path=os.path.join(args.path, "train.txt"),
                     premises=premises, hypotheses=hypotheses, append=True)
 
     # MNLI
-    mnli_path = os.path.join(args.path, "multinli_1.0")
-    premises, hypotheses = \
-        transform_data(os.path.join(mnli_path, "multinli_1.0_dev_matched.jsonl"))
+    mnli_path = os.path.join(args.path, "multinli_1.0", "multinli_1.0_")
+    premises, hypotheses = transform_data(mnli_path + "dev_matched.jsonl")
     write_sentences(write_path=os.path.join(args.path, "test.txt"),
                     premises=premises, hypotheses=hypotheses, append=True)
 
-    premises, hypotheses = \
-        transform_data(os.path.join(mnli_path, "multinli_1.0_train.jsonl"))
+    premises, hypotheses = transform_data(mnli_path + "train.jsonl"))
     write_sentences(write_path=os.path.join(args.path, "train.txt"),
                     premises=premises, hypotheses=hypotheses, append=True)

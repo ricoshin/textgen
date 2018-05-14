@@ -13,6 +13,7 @@ from torch.autograd import Variable
 from train.supervisor import TrainingSupervisor
 from train.train_helper import (GradientScalingHook, GradientTransferHook,
                                 load_test_data, mask_output_target, SigmaHook)
+from test.kenlm import train_kenlm
 from utils.utils import set_random_seed, to_gpu
 from utils.writer import ResultWriter
 
@@ -39,7 +40,7 @@ class Trainer(object):
         self.enc_h_hook = GradientScalingHook()
         #self.code_var_hook = GradientScalingHook()
         #self.tansfer_hook = GradientTransferHook()
-        self.noise = 0.5
+        self.noise = 0.8
         #self.noise = net.cfg.noise_radius
 
         while not self.sv.is_end_of_training():
@@ -63,13 +64,15 @@ class Trainer(object):
                 # train discriminator/critic (at a ratio of 5:1)
                 for i in range(cfg.niter_gan_d):  # default: 5
                     batch = net.data_gan.next()
-                    self._train_discriminator(batch)
+                    #self._train_discriminator(batch)
+                    self._train_code_vae(batch)
 
                 # train generator(with disc) / decoder(with disc_s)
                 for i in range(cfg.niter_gan_g):  # default: 1
-                    self._train_generator()
+                    #self._train_generator()
+                    self._train_dec2(batch)
 
-            self._train_regularizer(batch)
+            #self._train_regularizer(batch)
 
         if sv.is_evaluation():
             with sv.evaluation_context():
@@ -78,31 +81,28 @@ class Trainer(object):
                 self._eval_autoencoder(batch)
                 self._generate_text()
 
-        # if sv.global_step % 3000 == 0:
-        #     self._reverse_ppl()
+        if sv.global_step % 5000 == 0:
+            self._reverse_ppl(self.net.dec, 'dec1_ppl')
+            self._reverse_ppl(self.net.dec2, 'dec2_ppl')
 
-    def _reverse_ppl(self):
+    def _reverse_ppl(self, dec, name='Reversed_PPL'):
         self.net.set_modules_train_mode(True)
+        decoded_text = []
+        with torch.no_grad():
+            # generate 100 x 1000 samples
+            for i in range(100):
+                noise = self.net.gen.get_noise(1000)
+                code_fake = self.net.gen(noise)
+                decoded = dec.tester(code_fake,
+                                              max_len=self.cfg.max_len)
+                decoded_text.append(decoded.get_text_batch())
 
-        for i in range(1000):
-            noise = self.net.gen.get_noise(100)
-            code_fake = self.net.gen(noise)
-            decoded = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
-            text = decoded.get_text_batch()
-
-        data_path = "generated_{}.txt".format(self.sv.global_step)
-        with open(data_path, 'w') as f:
-            for word in self.net.vocab_w.word2idx.keys():
-                f.write(word+"\n")
-
-
-
-        code_fake = self.net.gen.for_eval()
-        zs = self._get_interpolated_z(100)
-        code_interpolated = self.net.gen(zs)
-
-        #decoded0 = self.net.dec.tester(noise, max_len=self.cfg.max_len)
-        decoded1 = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
+        decoded_text = np.concatenate(decoded_text, axis=0)
+        try:
+            ppl = train_kenlm(self.net, decoded_text, self.sv.global_step)
+            self.result.add(name, odict(ppl=ppl))
+        except:
+            log.info("Failed to train kenlm!")
 
     def _train_autoencoder(self, batch, name='AE_train'):
         self.net.set_modules_train_mode(True)
@@ -124,7 +124,8 @@ class Trainer(object):
         # decoded.embed.register_hook(self.net.dec.save_ae_grad_norm_hook)
 
         # Compute word prediction loss and accuracy
-        loss_recon, acc = self._compute_recon_loss_and_acc(
+        #target = batch.src.view(-1)
+        loss_recon, acc = self._recon_loss_and_acc_for_rnn(
             decoded.prob, batch.tar, len(self.net.vocab_w))
         #loss_var = 1 / torch.sum(self.net.reg.var) * 0.0000001
         #loss_mean = code_var.mean()
@@ -161,55 +162,64 @@ class Trainer(object):
 
     def _eval_autoencoder(self, batch, name='AE_eval'):
         #name += ('/' + decode_mode)
-        n_vars = 5
+        n_vars = 10
         assert n_vars > 0
-        codes_var = list()
+        codes_r = list()
 
         self.net.set_modules_train_mode(False)
 
-        # Build graph
-        embed = self.net.embed_w(batch.src)
-        code = self.net.enc(embed, batch.len)
-        #code = self.net.reg.without_var(enc_h)
-        for _ in range(n_vars):
+        with torch.no_grad():
+            # Build graph
+            embed = self.net.embed_w(batch.src)
+            #code = self.net.enc.with_noise(embed, batch.len)
+            code_ = self.net.enc(embed, batch.len)
+            #code = self.net.reg.without_var(enc_h)
+            for _ in range(n_vars):
+                #code_var = self.net.reg.with_var(code)
+                noise, _, _ = self.net.rev(code_)
+                code_r = self.net.gen(noise)
+                # if self.noise > 0:
+                #     code_var = self._add_noise_to(code)
+                # else:
+                #     code_var = code
+                codes_r.append(code_r)
+
+            # noise, _, _ = self.net.rev(code)
+            # code_gen = self.net.gen(noise)
+
             #code_var = self.net.reg.with_var(code)
-            if self.noise > 0:
-                code_var = self._add_noise_to(code)
-            else:
-                code_var = code
-            codes_var.append(code_var)
-
-        noise = self.net.rev(code_var)
-        code_gen = self.net.gen(noise)
-
-        #code_var = self.net.reg.with_var(code)
-        #cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
-        assert len(codes_var) > 0
-        decoded = self.net.dec(code, max_len=batch.max_len)
+            #cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
+            assert len(codes_r) > 0
+            decoded = self.net.dec(code_, max_len=batch.max_len)
 
         # Compute word prediction loss and accuracy
-        loss_recon, acc = self._compute_recon_loss_and_acc(
-            decoded.prob, batch.tar, len(self.net.vocab_w))
+        bsz = self.cfg.batch_size
+        maxlen = self.cfg.max_len + 1
+        #tar = batch.src[:bsz].veiw(bsz, )
+        target = batch.tar[:bsz*maxlen]
+        #target = batch.src[:bsz].view(-1)
+        loss_recon, acc = self._recon_loss_and_acc_for_rnn(
+            decoded.prob[:bsz], target, len(self.net.vocab_w))
         #loss_var = 1 / torch.mean(self.net.reg.var)
         #loss_kl = self._compute_kl_div_loss(self.net.reg.mu, self.net.reg.sigma)
 
         embed = ResultWriter.Embedding(
-            embed=code.data,
+            embed=code_.data,
             text=decoded.get_text_batch(),
             tag='code_embed')
 
-        embed_gen = ResultWriter.Embedding(
-            embed=code_gen.data,
-            text=decoded.get_text_batch(),
-            tag='code_embed')
+        # embed_gen = ResultWriter.Embedding(
+        #     embed=code_gen.data,
+        #     text=decoded.get_text_batch(),
+        #     tag='code_embed')
 
-        embeds_var = odict()
+        embeds_r = odict()
         for i in range(n_vars):
-            embed_var = ResultWriter.Embedding(
-                embed=codes_var[i].data,
+            embed_r = ResultWriter.Embedding(
+                embed=codes_r[i].data,
                 text=decoded.get_text_batch(),
                 tag='code_embed')
-            embeds_var.update({('embed_noise_%d' % i): embed_var})
+            embeds_r.update({('embed_noise_%d' % i): embed_r})
 
         result_dict = odict(
             loss_recon=loss_recon.item(),
@@ -217,19 +227,26 @@ class Trainer(object):
             #loss_kl=loss_kl.item(),
             acc=acc.item(),
             embed_real=embed,
-            embed_gen=embed_gen,
-            #embed_var=embed_var,
+            #embed_gen=embed_gen,
+            #embed_recon=embed_r,
             # cosim=cos_sim.item(),
             noise=self.net.enc.noise_radius,
             text=decoded.get_text_with_pair(batch.src),
         )
-        result_dict.update(embeds_var)
+        result_dict.update(embeds_r)
         self.result.add(name, result_dict)
 
-    def _compute_recon_loss_and_acc(self, output, target, vocab_size):
+    def _recon_loss_and_acc_for_rnn(self, output, target, vocab_size):
         output = output.view(-1, vocab_size)  # flatten output
-        if self.cfg.dec_type == 'rnn':
-            output, target = mask_output_target(output, target, vocab_size)
+        output, target = mask_output_target(output, target, vocab_size)
+        loss = self.net.dec.criterion_nll(output, target)
+        _, max_ids = torch.max(output, 1)
+        acc = torch.mean(max_ids.eq(target).float())
+
+        return loss, acc
+
+    def _recon_loss_and_acc_for_cnn(self, output, target, vocab_size):
+        output = output.view(-1, vocab_size)  # flatten output
         loss = self.net.dec.criterion_nll(output, target)
         _, max_ids = torch.max(output, 1)
         acc = torch.mean(max_ids.eq(target).float())
@@ -245,10 +262,10 @@ class Trainer(object):
     # def _compute_kl_div_loss(self, mu, logvar):
     #     return 0.5 * torch.mean(mu.pow(2) + logvar.exp() - logvar - 1)
 
-    def _compute_kl_div_loss(self, mean, stddev):
-        mean_sq = mean * mean
-        stddev_sq = stddev * stddev
-        return 0.5 * torch.mean(mean_sq + stddev_sq - torch.log(stddev_sq) - 1)
+    def _compute_kl_div_loss(self, mu, logvar):
+        #return 0.5 * torch.sum(mu**2 + sigma**2 - torch.log(sigma**2) - 1)
+        return 0.5 * torch.sum(mu**2 + logvar.exp() - logvar - 1, 1)
+
 
     def _add_noise_to(self, code):
         # gaussian noise
@@ -290,9 +307,18 @@ class Trainer(object):
         rev_dist.backward()
         self.net.optim_gen.step()
 
-        decoded = self.net.dec2(code_rev.detach(), batch=batch)
-        gen_fake, gen_acc = self._compute_recon_loss_and_acc(
+        self.net.set_modules_train_mode(True)
+
+        with torch.no_grad():
+            embed = self.net.embed_w(batch.src)
+            code_real = self.net.enc.with_noise(embed, batch.len)
+            noise = self.net.rev(code_real)
+            code_rev = self.net.gen(noise)
+
+        decoded = self.net.dec2(code_rev, batch=batch)
+        gen_fake, gen_acc = self._recon_loss_and_acc_for_rnn(
             decoded.prob, batch.tar, len(self.net.vocab_w))
+
         gen_fake.backward()
         self.net.optim_dec2.step()
 
@@ -314,20 +340,72 @@ class Trainer(object):
         # Build graph
         noise = self.net.gen.get_noise()
         code_fake = self.net.gen(noise)
-        self.net.disc.clamp_weights()
-        disc_fake = self.net.disc(code_fake)
-        disc_fake.backward(self.pos_one)
-        self.net.optim_gen.step()
+        # self.net.disc.clamp_weights()
+        # disc_fake = self.net.disc(code_fake)
+        # disc_fake.backward(self.pos_one)
+        # self.net.optim_gen.step()
 
         noise_recon = self.net.rev(code_fake.detach())
-        rev_dist = F.pairwise_distance(noise, noise_recon, p=2).mean()
+        rev_dist = F.pairwise_distance(noise, noise_recon, p=2)
         rev_dist.backward()
         self.net.optim_rev.step()
 
         self.result.add(name, odict(
-            loss_gen=disc_fake.item(),
-            #loss_rev=rev_dist.item(),
+            #loss_gen=disc_fake.item(),
+            loss_rev=rev_dist.item(),
         ))
+
+    def _train_code_vae(self, batch, name="Code_VAE_train"):
+        self.net.set_modules_train_mode(True)
+
+        with torch.no_grad():
+            embed = self.net.embed_w(batch.src)
+            code = self.net.enc(embed, batch.len)
+
+        noise, mu, sigma = self.net.rev(code.detach())
+        code_r = self.net.gen(noise)
+
+        loss_recon = (code_r - code.detach()).pow(2).sum(1).mean()
+        #loss_recon = F.pairwise_distance(code_r, code.detach(), p=2)
+        loss_kl = self._compute_kl_div_loss(mu, sigma).mean() #* 0.1
+
+        #beta = 200
+        #normalized_beta = beta * self.cfg.z_size / self.cfg.hidden_size_w
+        loss = loss_recon + loss_kl # * 0.01
+        loss.backward()
+
+        self.net.optim_rev.step()
+        self.net.optim_gen.step()
+
+        self.result.add(name, odict(
+            loss_total=loss.item(),
+            loss_recon=loss_recon.item(),
+            loss_kl=loss_kl.item(),
+            sigma=self.net.rev.sigma.item(),
+        ))
+
+
+    def _train_dec2(self, batch, name="Dec2_train"):
+        self.net.set_modules_train_mode(True)
+
+        with torch.no_grad():
+            embed = self.net.embed_w(batch.src)
+            code = self.net.enc(embed, batch.len)
+            noise, mu, sigma = self.net.rev(code)
+            code_r = self.net.gen(noise)
+
+        decoded = self.net.dec2(code_r.detach(), batch=batch)
+        gen_fake, gen_acc = self._recon_loss_and_acc_for_rnn(
+            decoded.prob, batch.tar, len(self.net.vocab_w))
+
+        gen_fake.backward()
+        self.net.optim_dec2.step()
+
+        self.result.add(name, odict(
+            dec2_acc=gen_acc.item(),
+            text=decoded.get_text_with_pair(batch.src),
+        ))
+
 
     def _train_regularizer2(self, batch, name="Reg_train"):
         self.net.set_modules_train_mode(True)
@@ -352,7 +430,7 @@ class Trainer(object):
 
         # Code generation
         embed = self.net.embed_w(batch.src)
-        code_real = self.net.enc(embed, batch.len)
+        code_real = self.net.enc.with_noise(embed, batch.len)
         code_fake = self.net.gen.for_train()
         #self.net.reg.sigma.register_hook(lambda grad: grad*grad.lt(0).float())
 
@@ -422,25 +500,26 @@ class Trainer(object):
     def _generate_text(self, name="Generated"):
         self.net.set_modules_train_mode(True)
 
-        # Build graph
-        noise_size = (self.cfg.eval_size, self.cfg.hidden_size_w)
-        noise = self.net.dec.make_noise_size_of(noise_size)
-        code_fake = self.net.gen.for_eval()
-        zs = self._get_interpolated_z(100)
-        code_interpolated = self.net.gen(zs)
+        with torch.no_grad():
+            # Build graph
+            noise_size = (self.cfg.eval_size, self.cfg.hidden_size_w)
+            noise = self.net.dec.make_noise_size_of(noise_size)
+            code_fake = self.net.gen.for_eval()
+            zs = self._get_interpolated_z(100)
+            code_interpolated = self.net.gen(zs)
 
-        #decoded0 = self.net.dec.tester(noise, max_len=self.cfg.max_len)
-        decoded1 = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
-        decoded2 = self.net.dec2.tester(code_fake, max_len=self.cfg.max_len)
-        decoded3 = self.net.dec2.tester(code_interpolated, max_len=self.cfg.max_len)
+            #decoded0 = self.net.dec.tester(noise, max_len=self.cfg.max_len)
+            decoded1 = self.net.dec.tester(code_fake, max_len=self.cfg.max_len)
+            decoded2 = self.net.dec2.tester(code_fake, max_len=self.cfg.max_len)
+            decoded3 = self.net.dec2.tester(code_interpolated, max_len=self.cfg.max_len)
 
         # code_embed_vae = ResultWriter.Embedding(
         #     embed=noise.data,
         #     text=decoded0.get_text_batch(),
         #     tag='code_embed')
-        code_embed_gan = ResultWriter.Embedding(
+        code_embed = ResultWriter.Embedding(
             embed=code_fake.data,
-            text=decoded1.get_text_batch(),
+            text=decoded2.get_text_batch(),
             tag='code_embed')
 
         code_embed_interpolated = ResultWriter.Embedding(
@@ -455,7 +534,7 @@ class Trainer(object):
 
         self.result.add(name, odict(
             #embed_fake_vae=code_embed_vae,
-            embed_fake=code_embed_gan,
+            embed_fake=code_embed,
             embed_interpolated=code_embed_interpolated,
             # embed_fake2=code_embed2,
             #txt_word0=decoded0.get_text(),

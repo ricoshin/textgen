@@ -110,7 +110,7 @@ class Network(object):
         self.dec2 = Decoder(cfg, self.embed_w)  # Decoder
         self.gen = Generator(cfg)  # Generator
         self.rev = ReversedGenerator(cfg)
-        self.disc = CodeDiscriminator(cfg, cfg.hidden_size_w)  # Discriminator
+        #self.disc = CodeDiscriminator(cfg, cfg.hidden_size_w)  # Discriminator
         #self.disc_s = SampleDiscriminator(cfg, cfg.hidden_size_w*2)
 
         self._print_modules_info()
@@ -138,7 +138,7 @@ class Network(object):
         #self.optim_reg_gen = optim_gen(self.reg)
         self.optim_gen = optim_gen(self.gen)
         self.optim_rev = optim_gen(self.rev)
-        self.optim_disc = optim_disc(self.disc)
+        #self.optim_disc = optim_disc(self.disc)
 
     def _print_modules_info(self):
         for name, module in self.registered_modules():

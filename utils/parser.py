@@ -21,8 +21,8 @@ parser.add_argument('--glove_dir', type=str, default='data/glove',
 parser.add_argument('--out_dir', type=str, default='out2',
                     help='location of output files')
 parser.add_argument('--name', type=str, required=True)
-#parser.add_argument('--kenlm_path', type=str, default='../Data/kenlm',
-#                    help='path to kenlm directory')
+parser.add_argument('--kenlm_path', type=str, default='kenlm',
+                    help='path to kenlm directory')
 
 # Data Processing Arguments
 
@@ -39,7 +39,7 @@ parser.add_argument('--load_glove', type=str2bool, default=True,
                     help='initialize embedding matrix using glove')
 
 # Model Arguments
-parser.add_argument('--vocab_size_w', type=int, default=10000,
+parser.add_argument('--vocab_size_w', type=int, default=20000,
                     help='cut vocabulary down to this size ')
 parser.add_argument('--embed_size_w', type=int, default=300,
                     help='size of word embeddings')
@@ -51,7 +51,7 @@ parser.add_argument('--hidden_size_t', type=int, default=50,
                     help='number of tagger hidden units per layer')
 parser.add_argument('--nlayers', type=int, default=1,
                     help='number of layers')
-parser.add_argument('--noise_radius', type=float, default=0.2,
+parser.add_argument('--noise_radius', type=float, default=0.0,
                     help='stdev of noise for autoencoder (regularizer)')
 parser.add_argument('--noise_anneal', type=float, default=0.995,
                     help='anneal noise_radius exponentially by this'

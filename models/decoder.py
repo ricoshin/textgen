@@ -177,7 +177,8 @@ class DecoderRNN(BaseDecoder):
             output_w, state_w = self.decoder(input_w, state_w)
             if self.cfg.dec_embed:
                 embed_out_w = self.linear_w(output_w)
-                cosim_w = self._compute_cosine_sim(embed_out_w, self.embed_w.embed)
+                cosim_w = self._compute_cosine_sim(embed_out_w,
+                                                   self.embed_w.embed)
                 prob_w = F.log_softmax(cosim_w * self.cfg.embed_temp, 2)
                 _, id_w = torch.max(cosim_w, 2)
                 # if eos token has already appeared, fill zeros
@@ -332,7 +333,7 @@ class DecoderOutPackerCNN(object):
         _, ids = torch.max(cosim, dim=2)
         probs = F.log_softmax(cosim * self.cfg.embed_temp, 2)
         #probs = probs.view(-1, len(self.vocab))
-        return DecoderOutPack(self, embeds, probs, ids)
+        return DecoderOutPack(self, probs, ids, embeds)
 
     def _compute_cosine_sim(self, out_embed):
         # compute cosine similarity
