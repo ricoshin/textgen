@@ -97,6 +97,8 @@ parser.add_argument('--dec_embed', type=str2bool, default=False,
                     help='decoder outputs word embeddings instead of indices')
 
 # Training Arguments
+parser.add_argument('--kl_term', type=float, default=0.01,
+                    help='kl term coefficient')
 parser.add_argument('--epochs', type=int, default=15,
                     help='maximum number of epochs')
 parser.add_argument('--min_epochs', type=int, default=6,

@@ -65,8 +65,7 @@ class EncoderRNN(BaseEncoder):
         # indices = [bsz, max_len], lengths = [bsz]
 
         # Embedding and pack
-        packed_embeddings = pack_padded_sequence(input=embed_in,
-                                                 lengths=lengths,
+        packed_embeddings = pack_padded_sequence(embed_in, lengths,
                                                  batch_first=True)
         # RNN encoder
         packed_output, state = self.encoder(packed_embeddings)
@@ -152,7 +151,7 @@ class VariationalRegularizer(BaseModule):
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
             nn.ReLU(),
             nn.Linear(cfg.hidden_size_w, cfg.hidden_size_w),
-            nn.Softplus(),
+            #nn.Softplus(),
         )
         #self._init_weights()
 
@@ -185,9 +184,9 @@ class VariationalRegularizer(BaseModule):
         self._mu = mu = self.mu_layers(enc_h)
 
         if self._with_var:
-            self._sigma = sigma = self.sigma_layers(enc_h)
-            #self._logvar = logvar = self.sigma_layers(enc_h)
-            #self._sigma = sigma = torch.exp(logvar * 0.5)
+            #self._sigma = sigma = self.sigma_layers(enc_h)
+            self._logvar = logvar = self.sigma_layers(enc_h)
+            self._sigma = sigma = torch.exp(logvar * 0.5)
             #log_sigma = self.sigma_layers(enc_h)
             #self._sigma = sigma = torch.exp(log_sigma)
             std = np.random.normal(0, 1, size=sigma.size())

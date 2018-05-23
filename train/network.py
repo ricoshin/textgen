@@ -31,9 +31,11 @@ class Network(object):
     loader.corpus DataScheduler -> self._batch_schedulers
 
     """
-    def __init__(self, cfg, corpus, vocab_word, vocab_tag=None):
+    def __init__(self, cfg, corpus_train, corpus_test, vocab_word,
+                 vocab_tag=None):
         self.cfg = cfg
-        self.corpus = corpus
+        self.corpus_train = corpus_train
+        self.corpus_test = corpus_test
         self.vocab_w = vocab_word
         self.vocab_t = vocab_tag
         self.ntokens = len(vocab_word)
@@ -64,7 +66,8 @@ class Network(object):
 
     def _build_dataset(self):
         cfg = self.cfg
-        corpus = self.corpus
+        c_train = self.corpus_train
+        c_test = self.corpus_test
         vocab_word = self.vocab_w
         vocab_tag = self.vocab_t
 
@@ -73,10 +76,10 @@ class Network(object):
         else:
             collator = BatchCollator(cfg, vocab_word)
 
-        self.data_train = MyDataLoader(corpus, cfg.batch_size, shuffle=True,
+        self.data_train = MyDataLoader(c_train, cfg.batch_size, shuffle=True,
                                        num_workers=0, collate_fn=collator,
                                        drop_last=True, pin_memory=True)
-        self.data_eval = MyDataLoader(corpus, cfg.eval_size, shuffle=True,
+        self.data_eval = MyDataLoader(c_test, cfg.eval_size, shuffle=True,
                                       num_workers=0, collate_fn=collator,
                                       drop_last=True, pin_memory=True)
 
@@ -105,12 +108,13 @@ class Network(object):
         # NOTE remove later!
         self.embed_w = Embedding(cfg, self.vocab_w)  # Word embedding
         self.enc = Encoder(cfg)  # Encoder
-        self.reg = CodeSmoothingRegularizer(cfg)  # Code regularizer
+        #self.reg = CodeSmoothingRegularizer(cfg)  # Code regularizer
+        self.reg = VariationalRegularizer(cfg)
         self.dec = Decoder(cfg, self.embed_w)  # Decoder
         self.dec2 = Decoder(cfg, self.embed_w)  # Decoder
         self.gen = Generator(cfg)  # Generator
         self.rev = ReversedGenerator(cfg)
-        #self.disc = CodeDiscriminator(cfg, cfg.hidden_size_w)  # Discriminator
+        self.disc = CodeDiscriminator(cfg, cfg.hidden_size_w)  # Discriminator
         #self.disc_s = SampleDiscriminator(cfg, cfg.hidden_size_w*2)
 
         self._print_modules_info()
@@ -138,7 +142,7 @@ class Network(object):
         #self.optim_reg_gen = optim_gen(self.reg)
         self.optim_gen = optim_gen(self.gen)
         self.optim_rev = optim_gen(self.rev)
-        #self.optim_disc = optim_disc(self.disc)
+        self.optim_disc = optim_disc(self.disc)
 
     def _print_modules_info(self):
         for name, module in self.registered_modules():

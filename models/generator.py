@@ -112,12 +112,13 @@ class Generator(BaseGenerator):
 class ReversedGenerator(BaseGenerator):
     def __init__(self, cfg):
         super(ReversedGenerator, self).__init__(cfg)
-        self.layers = self.stack_layers(cfg.hidden_size_w, cfg.hidden_size_w)
-        self.mu = nn.Linear(cfg.hidden_size_w, cfg.z_size)
-        self.logvar = nn.Sequential(
-            nn.Linear(cfg.hidden_size_w, cfg.z_size),
-            #nn.Softplus(),
-        )
+        self.layers = self.stack_layers(cfg.hidden_size_w, cfg.z_size)
+        #self.layers = self.stack_layers(cfg.hidden_size_w, cfg.hidden_size_w)
+        # self.mu = nn.Linear(cfg.hidden_size_w, cfg.z_size)
+        # self.logvar = nn.Sequential(
+        #     nn.Linear(cfg.hidden_size_w, cfg.z_size),
+        #     #nn.Softplus(),
+        # )
         self._init_weights()
 
     @property
@@ -128,10 +129,11 @@ class ReversedGenerator(BaseGenerator):
         assert x.size(1) == self.cfg.hidden_size_w
         for i, layer in enumerate(self.layers):
             x = layer(x)
-        mu = self.mu(x)
-        logvar = self.logvar(x)
-        code = self._reparameterize(mu, logvar)
-        return code, mu, logvar
+        return x
+        # mu = self.mu(x)
+        # logvar = self.logvar(x)
+        # code = self._reparameterize(mu, logvar)
+        # return code, mu, logvar
 
     def _reparameterize(self, mu, logvar):
         self._sigma = sigma = logvar.mul(0.5).exp_()

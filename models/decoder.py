@@ -110,23 +110,25 @@ class DecoderRNN(BaseDecoder):
         assert isinstance(inpack, DecoderInPack)
         if inpack.rnn_mode == self.Mode.TEACHER_FORCE:
             decoded = self._decode_teacher_force(
-                inpack.code, inpack.batch.src, inpack.batch.len)
+                inpack.code,
+                inpack.batch.dec_base.id,
+                inpack.batch.dec_base.len)
         elif inpack.rnn_mode == self.Mode.FREE_RUN:
             decoded = self._decode_free_run(inpack.code, inpack.max_len)
         return decoded
 
-    def _decode_teacher_force(self, code_w, words, lengths):
+    def _decode_teacher_force(self, code_w, base_ids, lengths):
         batch_size = code_w.size(0)
 
         # insert sos in the first column
-        sos_w = self._get_sos_batch(batch_size, self.vocab_w)
-        words = torch.cat([sos_w, words], 1)
+        # sos_w = self._get_sos_batch(batch_size, self.vocab_w)
+        # base_id = torch.cat([sos_w, base_id], 1)
 
         # length should be increased as well
-        lengths = [length + 1 for length in lengths]
+        #lengths = [length + 1 for length in lengths]
         init_state_w = self._init_hidden(batch_size, self.cfg.hidden_size_w)
 
-        embed_in_w = self.embed_w(words)  # for teacher forcing
+        embed_in_w = self.embed_w(base_ids)  # for teacher forcing
         all_code_w = code_w.unsqueeze(1).repeat(1, max(lengths), 1)
 
         # Decoder
@@ -171,7 +173,7 @@ class DecoderRNN(BaseDecoder):
         finished = to_gpu(self.cfg.cuda,
                           Variable(finished, requires_grad=False))
 
-        for i in range(max_len + 1):  # for each step
+        for i in range(max_len):  # for each step
             # Decoder
             input_w = torch.cat([embed_in_w, code_w], 2)
             output_w, state_w = self.decoder(input_w, state_w)
@@ -377,13 +379,14 @@ class DecoderOutPack(object):
 class WordIdTranscriber(object):
     def __init__(self, ids, vocab):
         self.vocab = vocab
-        self.ids = ids.data.cpu().numpy()
+        self.ids_tensor = ids
+        self.ids_array = ids.data.cpu().numpy()
 
     def to_text_batch(self):
-        return self.vocab.ids2text_batch(self.ids)
+        return self.vocab.ids2text_batch(self.ids_array)
 
     def to_text(self, num_sample):
-        ids_batch = self.vocab.ids2words_batch(self.ids)
+        ids_batch = self.vocab.ids2words_batch(self.ids_array)
         # np.random.shuffle(ids_batch)
         out_str = ''
         for i, ids in enumerate(ids_batch):
@@ -397,7 +400,7 @@ class WordIdTranscriber(object):
     def to_text_with_pair(self, ids_pair, num_sample):
         ids_pair = ids_pair.data.cpu().numpy()
         ids_batch_x = self.vocab.ids2words_batch(ids_pair)
-        ids_batch_y = self.vocab.ids2words_batch(self.ids)
+        ids_batch_y = self.vocab.ids2words_batch(self.ids_array)
         coupled = list(zip(ids_batch_x, ids_batch_y))
         np.random.shuffle(coupled)
         out_str = ''

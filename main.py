@@ -29,20 +29,21 @@ if __name__ == '__main__':
     # if cfg.data_name = 'pos':
     #     vocab = process_main_corpus(cfg, 'split')
     #     vocab_pos = process_pos_corpus(cfg, 'split')
-    #     corpus = CorpusPOSDataset(cfg.corpus_data_path,
+    #     corpus = CorpusPOSDataset(cfg.processed_train_path,
     #                               cfg.pos_data_path)
 
     if cfg.pos_tag:
         vocab, vocab_tag = process_corpus_tag(cfg)
-        corpus = CorpusPOSDataset(cfg.corpus_data_path,
-                                  cfg.pos_data_path)
+        corpus_train = CorpusPOSDataset(cfg.processed_train_path,
+                                        cfg.pos_data_path)
     else:
         vocab = process_main_corpus(cfg)
         vocab_tag = None
-        corpus = CorpusDataset(cfg.corpus_data_path)
+        corpus_train = CorpusDataset(cfg.processed_train_path)
+        corpus_test = CorpusDataset(cfg.processed_test_path)
 
     # Build network
-    net = Network(cfg, corpus, vocab, vocab_tag)
+    net = Network(cfg, corpus_train, corpus_test, vocab, vocab_tag)
 
     # Train
     if not (cfg.test or cfg.visualize):

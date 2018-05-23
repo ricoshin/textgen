@@ -25,7 +25,7 @@ class TrainingSupervisor(object):
             self._save_scalar_and_text: interval_train,
             #self._save_data_and_module: interval_train,
             # self._save_data_and_module: interval_train,
-            # self._save_embedding: interval_train,
+            self._save_embedding: interval_train,
             }
 
         self.interval_func_eval = {

@@ -84,7 +84,7 @@ class Tester(object):
             log.info(TestMode.AUTOENCODE.start_msg)
             batch = self._ask_what_to_encode()
             decoded = self._autoencode_from_text(batch, 'fr')
-            text = decoded.get_text_with_pair(batch.src, self.num_sample)
+            text = decoded.get_text_with_pair(batch.enc_src.id, self.num_sample)
 
         elif input_ == TestMode.SAMPLE.value:
             log.info(TestMode.SAMPLE.start_msg)
@@ -171,14 +171,14 @@ class Tester(object):
     def _autoencode_from_text(self, batch, decode_mode):
         self.net.set_modules_train_mode(False)
         # Build graph
-        embed = self.net.embed_w(batch.src)
-        code = self.net.enc(embed, batch.len)
+        embed = self.net.embed_w(batch.enc_src.id)
+        code = self.net.enc(embed, batch.enc_src.len)
         #code_var = self.net.reg.with_var(code)
         #cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
         if decode_mode == 'tf':
             decoded = self.net.dec.teacher_forcing(code, batch)
         elif decode_mode == 'fr':
-            decoded = self.net.dec.free_running(code, max(batch.len))
+            decoded = self.net.dec.free_running(code, max(batch.enc_src.len))
         else:
             raise Exception("Unknown decode_mode type!")
         return decoded

@@ -59,9 +59,9 @@ class AutoencoderRNN(BaseAutoencoder):
         super(AutoencoderRNN, self).__init__(*args)
 
     def forward(self, batch):
-        embed = self.embed(batch.src)
-        self.code = code = self.enc(embed, batch.len)
+        embed = self.embed(batch.enc_src.id)
+        self.code = code = self.enc(embed, batch.enc_src.len)
         decoded = self.dec.teacher_forcing(code, batch)
         loss, acc = self._loss_and_accuracy(
-            decoded.prob, batch.tar, self.embed.vocab_size)
+            decoded.prob, batch.dec_tar.id, self.embed.vocab_size)
         return decoded

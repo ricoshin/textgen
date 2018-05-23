@@ -149,33 +149,35 @@ def prepare_paths(cfg):
         if cfg.small:
             cfg.prepro_dir += "_small"
             filename = "books_1k.txt"
-            cfg.corpus_path = os.path.join(cfg.data_dir, filename)
+            cfg.corpus_train_path = os.path.join(cfg.data_dir, filename)
         else:
             filenames = ["books_large_p1.txt", "books_large_p2.txt"]
-            cfg.corpus_path = \
+            cfg.corpus_train_path = \
                 [*map(lambda fn: os.path.join(cfg.data_dir, fn), filenames)]
 
     elif cfg.data_name == "nli":
         if cfg.small:
             raise Exception("There's no small version of snli dataset!")
         else:
-            cfg.corpus_path = os.path.join(cfg.data_dir, 'train.txt')
+            cfg.corpus_train_path = os.path.join(cfg.data_dir, 'train.txt')
+            cfg.corpus_test_path = os.path.join(cfg.data_dir, 'test.txt')
 
     elif cfg.data_name == "pos":
         if cfg.small:
             raise Exception("There's no small version of pos dataset!")
         else:
-            cfg.corpus_path = os.path.join(cfg.data_dir, 'train/sentences.txt')
+            cfg.corpus_train_path = os.path.join(cfg.data_dir, 'train/sentences.txt')
             cfg.pos_path = os.path.join(cfg.data_dir, 'train/tags.txt')
 
     # preprocessed file path
-    cfg.corpus_data_path = os.path.join(cfg.prepro_dir, "data.txt")
-    cfg.corpus_vocab_path = os.path.join(cfg.prepro_dir, "vocab.pickle")
+    cfg.processed_train_path = os.path.join(cfg.prepro_dir, "train.txt")
+    cfg.processed_test_path = os.path.join(cfg.prepro_dir, "test.txt")
+    cfg.processed_vocab_path = os.path.join(cfg.prepro_dir, "vocab.pickle")
 
     if cfg.pos_tag:
         cfg.pos_data_path = os.path.join(cfg.prepro_dir, "data_pos.txt")
         cfg.pos_vocab_path = os.path.join(cfg.prepro_dir, "vocab_pos.pickle")
-
+        
     # make dirs if not exists
     if not os.path.exists(cfg.data_dir):
         raise Exception("can't find data_dir: %s" % cfg.data_dir)

@@ -3,6 +3,7 @@ import logging
 import multiprocessing as mp
 import os
 
+import re
 import spacy
 # import nltk # NOTE not available on python 3.6.x
 from tqdm import tqdm
@@ -143,12 +144,14 @@ class CorpusMultiProcessor(LargeFileMultiProcessor):
                 line = line.replace(src, dst)
             # tokenize line & count words
             tokens = tokenizer(line.strip())
-            if len(tokens) < self.min_len:
+            # cut off too short or long sentences
+            if len(tokens) < self.min_len or len(tokens) > self.max_len:
                 return None
+            # change numbers into '#'
+            tokens = [re.sub("\d", '#', token) for token in tokens]
             if self.lower:
-                return [token.lower() for token in tokens[:self.max_len]]
-            else:
-                return tokens
+                tokens = [token.lower() for token in tokens]#[:self.max_len]]
+            return tokens
 
         with open(self.file_path, 'r') as f:
             f.seek(start)

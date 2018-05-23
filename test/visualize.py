@@ -119,8 +119,8 @@ class Visualizer(object):
     def _generate_real_code(self, batch, with_var=False):
         self.net.set_modules_train_mode(True)
 
-        embed = self.net.embed_w(batch.src)
-        code = self.net.enc(embed, batch.len)
+        embed = self.net.embed_w(batch.enc_src.id)
+        code = self.net.enc(embed, batch.enc_src.len)
         if with_var:
             code = self.net.reg.with_var(code)
         return code

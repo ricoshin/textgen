@@ -1,10 +1,11 @@
-from copy import deepcopy
 import collections
 import linecache
 import logging
 import multiprocessing as mp
 import numpy as np
 import pickle
+from copy import deepcopy
+from collections import namedtuple
 from tqdm import tqdm
 
 import torch
@@ -51,54 +52,20 @@ class CorpusPOSDataset(Dataset):
 
 
 class BatchCollator(object):
-    def __init__(self, cfg, vocab, gpu=False):
+    def __init__(self, cfg, vocab):
         self.cfg = cfg
-        self.gpu = gpu
+        self.cuda = cfg.cuda
         self.vocab = vocab
 
     def __call__(self, batch):
         return self.process(batch)
 
     def process(self, batch):
-        source = []
-        target = []
-        lengths = [(len(sample)) for sample in batch]
-
-        if self.cfg.dec_type == 'cnn':
-            batch_max_len = self.cfg.max_len
-        elif self.cfg.dec_type == 'rnn':
-            batch_max_len = max(lengths)
-        else:
-            raise Exception('Unknown decoder type: %s' % self.cfg.dec_type)
-
+        lengths = [len(b) for b in batch]
         # Sort samples in decending order in order to use pack_padded_sequence
         if len(batch) > 1:
             batch, lengths = self._length_sort(batch, lengths)
-
-        for tokens in batch:
-            # pad & sos/eos
-            num_pads = batch_max_len - len(tokens)
-            pads = [self.vocab.PAD_ID] * num_pads
-            x = tokens + pads
-
-            if self.cfg.dec_type == 'cnn':
-                y = tokens + pads
-            elif self.cfg.dec_type == 'rnn':
-                y = tokens + [self.vocab.EOS_ID] + pads
-            else:
-                raise Exception('Unknown decoder type: %s' % self.cfg.dec_type)
-
-            source.append(x)
-            target.append(y)
-
-        source = torch.LongTensor(np.array(source))
-        target = torch.LongTensor(np.array(target)).view(-1)
-
-        if self.gpu:
-            source = source.cuda()
-            target = target.cuda()
-
-        return Batch(source, target, lengths)
+        return Batch(self.cfg, self.vocab, batch, lengths)
 
     def _length_sort(self, items, lengths, descending=True):
         items = list(zip(items, lengths))
@@ -159,28 +126,55 @@ class POSBatchCollator(BatchCollator):
 
 
 class Batch(object):
-    def __init__(self, source, target, length):
-        self.src = source
-        self.tar = target
-        self.len = length
+    def __init__(self, cfg, vocab, batch, lengths):
+        self.cfg = cfg
+        self.vocab = vocab
+        self.batch = batch
+        self.lengths = lengths
+        self.maxlen = {'cnn': self.cfg.max_len,
+                       'rnn': max(lengths)}[self.cfg.dec_type]
+        assert self.maxlen >= max(lengths)
+        self.out_tuple = namedtuple("Batch", "id, len")
 
     @property
-    def max_len(self):
-        return max(self.len)
+    def enc_src(self):
+        return self.get(sos=False, eos=True, flat=False)
 
-    def variable(self, volatile=False):
-        src = Variable(self.src, volatile=volatile)
-        tar = Variable(self.tar, volatile=volatile)
-        return Batch(src, tar, self.len)
+    @property
+    def dec_base(self):  # for rnn teacher forcing
+        return self.get(sos=True, eos=False, flat=False)
 
-    def cuda(self, cuda=True):
-        if cuda:
-            src = self.src.cuda()
-            tar = self.tar.cuda()
-        else:
-            src = self.src
-            tar = self.tar
-        return Batch(src, tar, self.len)
+    @property
+    def dec_tar(self):
+        return self.get(sos=False, eos=True, flat=True)
+
+    def get(self, sos, eos, flat=False):
+        if sos and eos:
+            raise Exception("sos/eos cannot be chosen together!")
+
+        ids = []
+        lens = []
+        sos_id = [self.vocab.SOS_ID] if sos else []
+        eos_id = [self.vocab.EOS_ID] if eos else []
+
+        for id_, len_ in zip(self.batch, self.lengths):
+            # pad & sos/eos
+            num_pads = self.maxlen - len_
+            pad_ids = [self.vocab.PAD_ID] * num_pads
+            id_ = sos_id + id_ + eos_id
+            id_ += pad_ids
+            ids.append(id_)
+            lens.append(len(id_))
+
+        ids = Variable(torch.LongTensor(np.array(ids)))
+
+        if flat:
+            ids = ids.view(-1)
+
+        if self.cfg.cuda:
+            ids = ids.cuda()
+
+        return self.out_tuple(id=ids, len=lens)
 
 
 class BatchTag(Batch):
@@ -211,13 +205,13 @@ class BatchTag(Batch):
         batch = super(BatchTag, self).variable(volatile)
         src_tag = Variable(self.__src_tag, volatile=volatile)
         tar_tag = Variable(self.__tar_tag, volatile=volatile)
-        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
+        return BatchTag(batch.enc_src.id, batch.dec_tar.id, batch.enc_src.len, src_tag, tar_tag)
 
     def cuda(self, cuda=True):
         batch = super(BatchTag, self).cuda(cuda)
         src_tag = self.__src_tag.cuda()
         tar_tag = self.__tar_tag.cuda()
-        return BatchTag(batch.src, batch.tar, batch.len, src_tag, tar_tag)
+        return BatchTag(batch.enc_src.id, batch.dec_tar.id, batch.enc_src.len, src_tag, tar_tag)
 
 
 class MyDataLoader(DataLoader):
@@ -268,7 +262,7 @@ class DataScheduler(object):
 
     @property
     def batch(self):
-        return self._batch.variable(self._volatile).cuda(self._cuda)
+        return self._batch
 
     def __len__(self):
         return len(self._dataloader)

@@ -76,8 +76,8 @@ class Trainer(object):
         self.net.set_modules_train_mode(True)
 
         # Build graph
-        embed = self.net.embed(batch.src)
-        code = self.net.enc.with_noise(embed, batch.len)
+        embed = self.net.embed(batch.enc_src.id)
+        code = self.net.enc.with_noise(embed, batch.enc_src.len)
 
         code_var = self.net.reg.with_var(code)
         cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
@@ -90,10 +90,10 @@ class Trainer(object):
         # Compute word prediction loss and accuracy
         prob_flat = decoded.prob.view(-1, self.cfg.vocab_size_w)
         #import pdb; pdb.set_trace()
-        loss = self.net.dec.criterion_nll(prob_flat, batch.tar)
+        loss = self.net.dec.criterion_nll(prob_flat, batch.dec_tar.id)
 
         _, max_ids = torch.max(prob_flat, 1)
-        acc = torch.mean(max_ids.eq(batch.tar).float())
+        acc = torch.mean(max_ids.eq(batch.dec_tar.id).float())
         loss.backward()
 
         # optimize
@@ -108,15 +108,15 @@ class Trainer(object):
             cosim=cos_sim.data[0],
             var=self.net.reg.var,
             noise=self.net.enc.noise_radius,
-            text=decoded.get_text_with_target(batch.src),
+            text=decoded.get_text_with_target(batch.enc_src.id),
             ))
 
     def _eval_autoencoder(self, batch, name='AE_eval'):
         self.net.set_modules_train_mode(True)
 
         # Build graph
-        embed = self.net.embed(batch.src)
-        code = self.net.enc(embed, batch.len)
+        embed = self.net.embed(batch.enc_src.id)
+        code = self.net.enc(embed, batch.enc_src.len)
         code_var = self.net.reg.with_var(code)
         cos_sim = F.cosine_similarity(code, code_var, dim=1).mean()
         decoded = self.net.dec(code_var)
@@ -128,7 +128,7 @@ class Trainer(object):
 
         # Compute word prediction loss and accuracy
         masked_output, masked_target = \
-            mask_output_target(decoded.prob, batch.tar, self.cfg.vocab_size_w)
+            mask_output_target(decoded.prob, batch.dec_tar.id, self.cfg.vocab_size_w)
         loss = self.net.dec.criterion_nll(masked_output, masked_target)
         _, max_ids = torch.max(masked_output, 1)
         acc = torch.mean(max_ids.eq(masked_target).float())
@@ -141,15 +141,15 @@ class Trainer(object):
             cosim=cos_sim.data[0],
             var=self.net.reg.var,
             noise=self.net.enc.noise_radius,
-            text=decoded.get_text_with_target(batch.src),
+            text=decoded.get_text_with_target(batch.enc_src.id),
             ))
 
     def _train_regularizer(self, batch, name="Logvar_train"):
         self.net.set_modules_train_mode(True)
 
         # Build graph
-        embed = self.net.embed(batch.src)
-        code_real = self.net.enc(embed, batch.len)
+        embed = self.net.embed(batch.enc_src.id)
+        code_real = self.net.enc(embed, batch.enc_src.len)
         code_real_var = self.net.reg.with_var(code_real)
         disc_real = self.net.disc_c(code_real_var)
 
@@ -163,8 +163,8 @@ class Trainer(object):
         self.net.set_modules_train_mode(True)
 
         # Code generation
-        embed = self.net.embed(batch.src)
-        code_real = self.net.enc(embed, batch.len)
+        embed = self.net.embed(batch.enc_src.id)
+        code_real = self.net.enc(embed, batch.enc_src.len)
         disc_real = self.net.disc_c(code_real)
 
         disc_real.backward(self.neg_one)
@@ -189,8 +189,8 @@ class Trainer(object):
         self.net.set_modules_train_mode(True)
 
         # Code generation
-        embed = self.net.embed(batch.src)
-        code_real = self.net.enc(embed, batch.len)
+        embed = self.net.embed(batch.enc_src.id)
+        code_real = self.net.enc(embed, batch.enc_src.len)
         code_real_var = self.net.reg.with_var(code_real)
         code_fake = self.net.gen.for_train()
 

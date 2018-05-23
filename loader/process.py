@@ -12,23 +12,28 @@ log = logging.getLogger('main')
 
 def process_main_corpus(cfg):
     StopWatch.go('Total')
-    if (not os.path.exists(cfg.corpus_data_path)
-        or not os.path.exists(cfg.corpus_vocab_path)
-        or cfg.reload_prepro):
+    if (not os.path.exists(cfg.processed_train_path) or
+        not os.path.exists(cfg.processed_test_path) or
+        not os.path.exists(cfg.processed_vocab_path) or
+        cfg.reload_prepro):
 
         log.info('Start preprocessing data and building vocabulary!')
-        if isinstance(cfg.corpus_path, (list, tuple)):
-            corpus_proc = CorpusMultiProcessor.from_multiple_files(
-                file_paths=cfg.corpus_path,
+        if isinstance(cfg.corpus_train_path, (list, tuple)):
+            train_proc = CorpusMultiProcessor.from_multiple_files(
+                file_paths=cfg.corpus_train_path,
                 min_len=cfg.min_len,
-                max_len=cfg.max_len)
-            sents, counter = CorpusMultiProcessor.multi_process(corpus_proc)
+                max_len=cfg.max_len - 1) # NOTE considering <eos>
+            train_corp, counter = CorpusMultiProcessor.multi_process(train_proc)
         else:
-            corpus_proc = CorpusMultiProcessor(file_path=cfg.corpus_path,
-                                               min_len=cfg.min_len,
-                                               max_len=cfg.max_len)
-            sents, counter = corpus_proc.process()
+            train_proc = CorpusMultiProcessor(file_path=cfg.corpus_train_path,
+                                              min_len=cfg.min_len,
+                                              max_len=cfg.max_len - 1)
+            train_corp, counter = train_proc.process()
 
+        test_proc = CorpusMultiProcessor(file_path=cfg.corpus_test_path,
+                                         min_len=cfg.min_len,
+                                         max_len=cfg.max_len - 1)
+        test_corp, _ = test_proc.process()
         # pretrained embedding initialization if necessary
         if cfg.load_glove:
             print('Loading GloVe pretrained embeddings...')
@@ -43,17 +48,20 @@ def process_main_corpus(cfg):
                       embed_init=word2vec,
                       max_size=cfg.vocab_size_w,
                       specials=['<pad>', '<sos>', '<eos>', '<unk>'])
-        sents = vocab.words2ids_batch(sents)
+
+        train_corp = vocab.words2ids_batch(train_corp)
+        test_corp = vocab.words2ids_batch(test_corp)
 
         with StopWatch('Saving text (Main corpus)'):
-            np.savetxt(cfg.corpus_data_path, sents, fmt="%s")
-            log.info("Saved preprocessed data: %s", cfg.corpus_data_path)
+            np.savetxt(cfg.processed_train_path, train_corp, fmt="%s")
+            np.savetxt(cfg.processed_test_path, test_corp, fmt="%s")
+            log.info("Saved preprocessed data: %s", cfg.processed_train_path)
         with StopWatch('Pickling vocab'):
-            vocab.pickle(cfg.corpus_vocab_path)
-            log.info("Saved vocabulary: %s" % cfg.corpus_vocab_path)
+            vocab.pickle(cfg.processed_vocab_path)
+            log.info("Saved vocabulary: %s" % cfg.processed_vocab_path)
     else:
         log.info('Previously processed files will be used!')
-        vocab = Vocab.unpickle(cfg.corpus_vocab_path)
+        vocab = Vocab.unpickle(cfg.processed_vocab_path)
     StopWatch.stop('Total')
     return vocab
 
@@ -94,20 +102,20 @@ def process_pos_corpus(cfg):
 def process_corpus_tag(cfg):
     StopWatch.go('Total')
 
-    if (not os.path.exists(cfg.corpus_data_path)
-        or not os.path.exists(cfg.corpus_vocab_path)
+    if (not os.path.exists(cfg.processed_train_path)
+        or not os.path.exists(cfg.processed_vocab_path)
         or cfg.reload_prepro):
 
         log.info('Start preprocessing data and building vocabulary!')
-        if isinstance(cfg.corpus_path, (list, tuple)):
+        if isinstance(cfg.corpus_train_path, (list, tuple)):
             corpus_proc = CorpusTagMultiProcessor.from_multiple_files(
-                file_paths=cfg.corpus_path,
+                file_paths=cfg.corpus_train_path,
                 min_len=cfg.min_len,
                 max_len=cfg.max_len)
             tokens, tags, token_cnt, tag_cnt = \
                 CorpusTagMultiProcessor.multi_process(corpus_proc)
         else:
-            corpus_proc = CorpusTagMultiProcessor(file_path=cfg.corpus_path,
+            corpus_proc = CorpusTagMultiProcessor(file_path=cfg.corpus_train_path,
                                                   min_len=cfg.min_len,
                                                   max_len=cfg.max_len)
             tokens, tags, token_cnt, tag_cnt = corpus_proc.process()
@@ -137,18 +145,18 @@ def process_corpus_tag(cfg):
         tags_ids = tag_vocab.words2ids_batch(tags)
 
         with StopWatch('Saving text (Main corpus)'):
-            np.savetxt(cfg.corpus_data_path, token_ids, fmt="%s")
-            log.info("Saved preprocessed corpus: %s", cfg.corpus_data_path)
+            np.savetxt(cfg.processed_train_path, token_ids, fmt="%s")
+            log.info("Saved preprocessed corpus: %s", cfg.processed_train_path)
             np.savetxt(cfg.pos_data_path, tags_ids, fmt="%s")
             log.info("Saved preprocessed POS tags: %s", cfg.pos_data_path)
         with StopWatch('Pickling vocab'):
-            token_vocab.pickle(cfg.corpus_vocab_path)
-            log.info("Saved corpus vocabulary: %s" % cfg.corpus_vocab_path)
+            token_vocab.pickle(cfg.processed_vocab_path)
+            log.info("Saved corpus vocabulary: %s" % cfg.processed_vocab_path)
             tag_vocab.pickle(cfg.pos_vocab_path)
             log.info("Saved POS tag vocabulary: %s" % cfg.pos_vocab_path)
     else:
         log.info('Previously processed files will be used!')
-        token_vocab = Vocab.unpickle(cfg.corpus_vocab_path)
+        token_vocab = Vocab.unpickle(cfg.processed_vocab_path)
         tag_vocab = Vocab.unpickle(cfg.pos_vocab_path)
 
     cfg.tag_size = len(tag_vocab)
